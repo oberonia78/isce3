@@ -244,8 +244,9 @@ runconfig:
                 # Number of lines per blocks
                 lines_per_block: 1000
                 # ionosphere estimation methods
-                #(split_main_band, main_side_band, main_diff_ms_band)
-                spectral_diversity: split_main_band
+                #(split_main_band, main_side_band, main_diff_ms_band, 
+                # main_diff_low_high_subband)
+                spectral_diversity: main_diff_low_high_subband
                 # Polarization to be used for ionosphere estimation.
                 # Split_main_band method does not require frequency B.
                 list_of_frequencies:
@@ -283,11 +284,11 @@ runconfig:
                     # (nearest, smoothed)
                     filling_method: nearest
                     # Kernel size in pixels
-                    kernel_range: 800
-                    kernel_azimuth: 800
+                    kernel_range: 100
+                    kernel_azimuth: 100
                     # Sigma for gaussian filtering in pixel
-                    sigma_range: 100
-                    sigma_azimuth: 100
+                    sigma_range: 33
+                    sigma_azimuth: 33
                     # Number of iteration for low pass filtering
                     filter_iterations: 1
                     # Unwrapping correction bool. If False, only filtering

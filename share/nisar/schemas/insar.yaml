@@ -686,7 +686,7 @@ ionosphere_phase_correction_options:
     # being 1/3 (fixed for now) of the total main range spectrum.
     # 'main_side_band' uses the additional NISAR 5 MHz side-band to estimate the
     # ionosphere phase screen. Main and side-bands are intended to be at the same polarization
-    spectral_diversity: enum('split_main_band', 'main_side_band', 'main_diff_ms_band', required=False)
+    spectral_diversity: enum('split_main_band', 'main_diff_low_high_subband', 'main_side_band', 'main_diff_ms_band', required=False)
     split_range_spectrum: include('split_range_spectrum_options', required=False)
     list_of_frequencies: include('ionosphere_freq_pol_options', required=False)
     dispersive_filter: include('dispersive_filter_options', required=False)
