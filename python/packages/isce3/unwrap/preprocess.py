@@ -328,17 +328,16 @@ def project_map_to_radar(cfg, input_data_path, freq):
         # open input raster for reading
         input_data_raster = gdal.Open(input_path)
         input_data = input_data_raster.ReadAsArray()
-
+        rows, cols = input_data.shape
         # if multi-looks are 1 or 2,
         # slice_az_end and slice_rg_end are 0. To avoid the positive
-        # number, we take None. 
+        # number, we take None.
+        az_size = int(rows / az_looks)
+        rg_size = int(cols / rg_looks)
         slice_az_start = int(az_looks / 2)
-        slice_az_end = None \
-            if az_looks in [1, 2] else -round(az_looks / 2) + 1
-
+        slice_az_end = az_size * az_looks
         slice_rg_start = int(rg_looks / 2)
-        slice_rg_end = None \
-            if rg_looks in [1, 2] else -round(rg_looks / 2) + 1
+        slice_rg_end = rg_size * rg_looks
 
         # take center pixels of block to decimate
         decimated_arr = \
