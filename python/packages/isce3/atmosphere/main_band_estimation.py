@@ -282,12 +282,13 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
 
         return mask_array
 
-
-    def get_valid_area(self,
+    def get_valid_area(
+            self,
             main_array=None,
             side_array=None,
             low_band_array=None,
             high_band_array=None,
+            diff_low_high_band_array=None,
             slant_main=None,
             slant_side=None,
             invalid_value=0):
@@ -308,6 +309,8 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
             image of main-band interferogram
         high_band_array : numpy.ndarray
             image of side-band interferogram
+        diff_low_high_band_array : numpy.ndarray
+            image of difference between low- and high-sub bands
         slant_main : numpy.ndarray
             slant range array of frequency A band
         slant_side : numpy.ndarray
