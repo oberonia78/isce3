@@ -16,7 +16,7 @@ class IonosphereEstimation:
                  slant_main=None,
                  slant_side=None):
 
-        """Initialized IonosphererEstimation Base Class
+        """Initialized IonosphereEstimation Base Class
 
         Parameters
         ----------

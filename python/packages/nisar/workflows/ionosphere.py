@@ -1,49 +1,60 @@
 #!/usr/bin/env python3
 import copy
-import journal
 import os
 import pathlib
 import shutil
 import time
 from itertools import repeat
 
+import journal
 import numpy as np
 from osgeo import gdal
 
 import isce3
-from isce3.atmosphere.main_band_estimation import (
-    MainSideBandIonosphereEstimation,
-    MainDiffMsBandIonosphereEstimation)
-from isce3.atmosphere.split_band_estimation import (
-    LowHighSubbandIonosphereEstimation,
-    MainDiffLowHighSubbandIonosphereEstimation)
 from isce3.atmosphere.ionosphere_filter import (
     IonosphereFilter,
     read_block_array,
+    unwrapping_correction_with_filter,
     write_array,
-    unwrapping_correction_with_filter)
-from isce3.core.block_param_generator import (block_param_generator,
-                                              get_raster_block,
-                                              write_raster_block)
-
+)
+from isce3.atmosphere.main_band_estimation import (
+    MainDiffMsBandIonosphereEstimation,
+    MainSideBandIonosphereEstimation,
+)
+from isce3.atmosphere.split_band_estimation import (
+    LowHighSubbandIonosphereEstimation,
+    MainDiffLowHighSubbandIonosphereEstimation,
+)
+from isce3.core.block_param_generator import (
+    block_param_generator,
+    get_raster_block,
+    write_raster_block,
+)
 from isce3.io import HDF5OptimizedReader
-from isce3.signal.interpolate_by_range import (decimate_freq_a_array,
-                                               interpolate_freq_b_array)
-
+from isce3.signal.interpolate_by_range import (
+    decimate_freq_a_array,
+    interpolate_freq_b_array,
+)
 from isce3.splitspectrum import splitspectrum
-from isce3.unwrap.preprocess import project_map_to_radar
 from isce3.unwrap.bridge_phase import bridge_unwrapped_phase
+from isce3.unwrap.preprocess import project_map_to_radar
 
+from nisar.products.insar.product_paths import (
+    CommonPaths,
+    RIFGGroupsPaths,
+    RUNWGroupsPaths,
+)
 from nisar.products.readers import SLC
-from nisar.workflows import (crossmul, h5_prep,
-                             filter_interferogram, prepare_insar_hdf5,
-                             resample_slc_v2,
-                             unwrap)
+from nisar.workflows import (
+    crossmul,
+    filter_interferogram,
+    h5_prep,
+    prepare_insar_hdf5,
+    resample_slc_v2,
+    unwrap,
+)
 from nisar.workflows.compute_stats import compute_stats_real_hdf5_dataset
 from nisar.workflows.ionosphere_runconfig import InsarIonosphereRunConfig
-from nisar.products.insar.product_paths import (CommonPaths,
-                                                RIFGGroupsPaths,
-                                                RUNWGroupsPaths)
 from nisar.workflows.yaml_argparse import YamlArgparse
 
 
