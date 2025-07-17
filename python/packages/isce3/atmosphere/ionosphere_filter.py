@@ -152,7 +152,6 @@ class IonosphereFilter:
                     data_block,
                     min_cluster_pixels=min_cluster_pixels)
 
-                filled_data_sig = data_sig_block
                 if self.filling_method == "smoothed":
                     fill_method = fill_with_smoothed
                 elif self.filling_method == "nearest":
@@ -163,8 +162,10 @@ class IonosphereFilter:
                 if self.filling_method in ["distance"]:
                     weight = mask_block.astype('float')
                     filled_data = fill_method(data_block, weight)
+                    filled_data_sig = fill_method(data_sig_block, weight)
 
                 else:
+                    filled_data_sig = fill_method(data_sig_block)
                     filled_data = fill_method(data_block)
 
                 if iter_cnt > 0:

@@ -116,7 +116,7 @@ def compute_phase_jump(previous_with_pad, current_image, half_pad_length):
 
     Returns
     -------
-    current_image : numpy.ndarray
+    current_image : numpy.ndarray   
         The current image with the phase jump corrected.
     difference_jump : float
         The computed phase jump value, which was applied to correct the
@@ -188,10 +188,12 @@ def decimate_freq_a_offset(iono_insar_cfg, original_dict):
     rspc_path_b = f"{dest_freq_path_b}/interferogram/slantRangeSpacing"
 
     # Read slant range array from main and side bands
-    with HDF5OptimizedReader(name=runw_freq_a_str, mode='r',
-        libver='latest', swmr=True) as src_main_h5, \
-        HDF5OptimizedReader(name=runw_freq_b_str, mode='r',
-        libver='latest', swmr=True) as src_side_h5:
+    with HDF5OptimizedReader(
+            name=runw_freq_a_str, mode='r',
+            libver='latest', swmr=True) as src_main_h5, \
+        HDF5OptimizedReader(
+            name=runw_freq_b_str, mode='r',
+            libver='latest', swmr=True) as src_side_h5:
 
         # Read slant range block from HDF5
         main_slant = np.array(src_main_h5[rslant_path_a])
@@ -207,16 +209,16 @@ def decimate_freq_a_offset(iono_insar_cfg, original_dict):
 
     for decimate_proc in decimate_list:
         if decimate_proc == 'coarse':
-            coarse_offset_path = f'/geo2rdr/freqA'
-            coarse_offset_b_path = f'/geo2rdr/freqB'
+            coarse_offset_path = '/geo2rdr/freqA'
+            coarse_offset_b_path = '/geo2rdr/freqB'
 
             offsets_path = f'{offsets_dir}/{coarse_offset_path}'
             offsets_b_path = f'{decimated_offset_dir}/{coarse_offset_b_path}'
         else:
             # We checked the existence of HH/VV offsets in resample_slc_runconfig.py
             # Select the first offsets available between HH and VV
-            fine_offset_path = f'rubbersheet_offsets/freqA'
-            fine_offset_b_path = f'rubbersheet_offsets/freqB'
+            fine_offset_path = 'rubbersheet_offsets/freqA'
+            fine_offset_b_path = 'rubbersheet_offsets/freqB'
 
             freq_offsets_path = f'{offsets_dir}/{fine_offset_path}'
             freq_offsets_b_path = f'{decimated_offset_dir}/{fine_offset_b_path}'
@@ -1043,7 +1045,7 @@ def run(cfg: dict, runw_hdf5: str):
 
     # Run InSAR for sub-band SLCs (split-main-bands) or
     # for main and side bands for iono_freq_pols (main-side-bands)
-    insar_ionosphere_pair(iono_insar_cfg, runw_hdf5)
+    # insar_ionosphere_pair(iono_insar_cfg, runw_hdf5)
 
     t_all = time.time()
     # Define methods to use subband or sideband
@@ -1228,10 +1230,12 @@ def run(cfg: dict, runw_hdf5: str):
             del main_runw_raster
             del side_runw_raster
 
-            with HDF5OptimizedReader(name=runw_freq_a_str, mode='r',
-                libver='latest', swmr=True) as src_main_h5, \
-                HDF5OptimizedReader(name=runw_freq_b_str, mode='r',
-                libver='latest', swmr=True) as src_side_h5:
+            with HDF5OptimizedReader(
+                    name=runw_freq_a_str, mode='r',
+                    libver='latest', swmr=True) as src_main_h5, \
+                HDF5OptimizedReader(
+                    name=runw_freq_b_str, mode='r',
+                    libver='latest', swmr=True) as src_side_h5:
 
                 # Read slant range block from HDF5
                 src_main_h5[rslant_path_a].read_direct(
@@ -1306,10 +1310,12 @@ def run(cfg: dict, runw_hdf5: str):
                             [block_rows_data, cols_main],
                             dtype=float)
 
-                with HDF5OptimizedReader(name=sub_low_runw_str, mode='r',
-                    libver='latest', swmr=True) as src_low_h5, \
-                    HDF5OptimizedReader(name=sub_high_runw_str, mode='r',
-                    libver='latest', swmr=True) as src_high_h5:
+                with HDF5OptimizedReader(
+                        name=sub_low_runw_str, mode='r',
+                        libver='latest', swmr=True) as src_low_h5, \
+                    HDF5OptimizedReader(
+                        name=sub_high_runw_str, mode='r',
+                        libver='latest', swmr=True) as src_high_h5:
 
                     # Read runw block for sub-bands
                     src_low_h5[runw_path_freq_a].read_direct(
@@ -1369,43 +1375,46 @@ def run(cfg: dict, runw_hdf5: str):
                         iterations=filter_iterations,
                         filter_method='convolution')
 
-                    if iono_method == 'main_diff_low_high_subband':
-                        with HDF5OptimizedReader(name=runw_path_insar, mode='r',
+                if iono_method == 'main_diff_low_high_subband':
+                    with HDF5OptimizedReader(
+                            name=runw_path_insar, mode='r',
                             libver='latest', swmr=True) as src_main_h5, \
-                             HDF5OptimizedReader(name=sub_diff_runw_str, mode='r',
+                        HDF5OptimizedReader(
+                            name=sub_diff_runw_str, mode='r',
                             libver='latest', swmr=True) as src_diff_h5:
-                            src_main_h5[runw_path_freq_a].read_direct(
-                                main_image,
-                                np.s_[row_start:row_start + block_rows_data,
-                                      :])
-                            src_diff_h5[runw_path_freq_a].read_direct(
-                                diff_subband_image,
-                                np.s_[row_start:row_start + block_rows_data,
-                                      :])
+                        src_main_h5[runw_path_freq_a].read_direct(
+                            main_image,
+                            np.s_[row_start:row_start + block_rows_data,
+                                  :])
+                        src_diff_h5[runw_path_freq_a].read_direct(
+                            diff_subband_image,
+                            np.s_[row_start:row_start + block_rows_data,
+                                  :])
 
-                            # Read coherence block for sub-bands
-                            src_main_h5[rcoh_path_freq_a].read_direct(
-                                main_coh_image,
-                                np.s_[row_start:row_start + block_rows_data,
-                                      :]
-                                      )
-                            src_diff_h5[rcoh_path_freq_a].read_direct(
-                                diff_coh_image,
-                                np.s_[row_start:row_start + block_rows_data,
-                                      :])
+                        # Read coherence block for sub-bands
+                        src_main_h5[rcoh_path_freq_a].read_direct(
+                            main_coh_image,
+                            np.s_[row_start:row_start + block_rows_data,
+                                  :]
+                            )
+                        src_diff_h5[rcoh_path_freq_a].read_direct(
+                            diff_coh_image,
+                            np.s_[row_start:row_start + block_rows_data,
+                                  :]
+                            )
 
-                            if "connected_components" in mask_type:
-                                # Read connected_components block for sub-bands
-                                src_main_h5[rcom_path_freq_a].read_direct(
-                                    main_conn_image,
-                                    np.s_[
-                                        row_start:row_start + block_rows_data,
-                                        :])
-                                src_high_h5[rcom_path_freq_a].read_direct(
-                                    diff_subband_conn_image,
-                                    np.s_[
-                                        row_start:row_start + block_rows_data,
-                                        :])
+                        if "connected_components" in mask_type:
+                            # Read connected_components block for sub-bands
+                            src_main_h5[rcom_path_freq_a].read_direct(
+                                main_conn_image,
+                                np.s_[
+                                    row_start:row_start + block_rows_data,
+                                    :])
+                            src_high_h5[rcom_path_freq_a].read_direct(
+                                diff_subband_conn_image,
+                                np.s_[
+                                    row_start:row_start + block_rows_data,
+                                    :])
 
             if iono_method in iono_method_sideband:
 
@@ -1422,19 +1431,22 @@ def run(cfg: dict, runw_hdf5: str):
                     diff_ms_image = np.empty([block_rows_data, cols_side],
                                              dtype=float)
                     diff_coh_image = np.empty([block_rows_data, cols_side],
-                                             dtype=float)
+                                              dtype=float)
 
                 if "connected_components" in mask_type:
-                    main_conn_image = np.empty([block_rows_data, cols_main],
+                    main_conn_image = np.empty(
+                        [block_rows_data, cols_main],
                         dtype=float)
                     side_conn_image = np.empty(
                         [block_rows_data, cols_side],
                         dtype=float)
 
-                with HDF5OptimizedReader(name=runw_freq_a_str, mode='r',
-                    libver='latest', swmr=True) as src_main_h5, \
-                    HDF5OptimizedReader(name=runw_freq_b_str, mode='r',
-                    libver='latest', swmr=True) as src_side_h5:
+                with HDF5OptimizedReader(
+                        name=runw_freq_a_str, mode='r',
+                        libver='latest', swmr=True) as src_main_h5, \
+                    HDF5OptimizedReader(
+                        name=runw_freq_b_str, mode='r',
+                        libver='latest', swmr=True) as src_side_h5:
 
                     # Read runw block for main and side bands
                     src_main_h5[runw_path_freq_a].read_direct(
@@ -1463,8 +1475,9 @@ def run(cfg: dict, runw_hdf5: str):
 
                     if iono_method == 'main_diff_ms_band':
 
-                        with HDF5OptimizedReader(name=runw_diff_str, mode='r',
-                            libver='latest', swmr=True) as src_diff_h5:
+                        with HDF5OptimizedReader(
+                                name=runw_diff_str, mode='r',
+                                libver='latest', swmr=True) as src_diff_h5:
                             src_diff_h5[runw_path_freq_b].read_direct(
                                 diff_ms_image,
                                 np.s_[
@@ -1937,7 +1950,6 @@ def run(cfg: dict, runw_hdf5: str):
                         low_sub_runw=sub_low_image,
                         high_sub_runw=sub_high_image,
                         diff_low_high_runw=diff_subband_image)
-
 
                     dispersive_unwcor, non_dispersive_unwcor = \
                         iono_phase_obj.compute_disp_nondisp(
