@@ -407,43 +407,6 @@ def download_watermask(polys, epsgs, outfile, version):
         raise ValueError(errmsg)
 
 
-def extract_dem_description(in_readme_path):
-    """Extract DEM description from README.txt on nisar-dem
-       s3 bucket
-
-    Parameters
-    ----------
-    in_readme_path: str
-        Path to the README.txt on the nisar-dem
-        s3 bucket
-
-    Returns
-    -------
-    dem_descr: str
-        String containing the "dem description"
-        extracted from the README.txt
-    """
-    pattern = r'^\s*- Short description: (.+)$'
-
-    # JPL internal s3 buckets are not accessible via
-    # https addresses due to cybersecurity concerns. This
-    # excludes using "requests". Using boto3 and its AWS s3
-    # API would add another unnecessary dependency to ISCE3.
-    # Therefore, we use GDAL to read a remote text file.
-    fp = gdal.VSIFOpenL(in_readme_path, "rb")
-    text = gdal.VSIFReadL(1, 100000, fp).decode()
-    gdal.VSIFCloseL(fp)
-
-    match = re.search(pattern, text, re.MULTILINE)
-    if match:
-        dem_descr = match.group(1)
-    else:
-        err_str = 'Line with "Short Description" not found in README.txt'
-        raise ValueError(err_str)
-
-    return dem_descr
-
-
 def parse_readme_fields(
         readme_path: str,
         encoding: str = "utf-8"
