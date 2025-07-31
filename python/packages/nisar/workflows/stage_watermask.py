@@ -44,7 +44,7 @@ def cmdLineParse():
     parser.add_argument('-m', '--margin', type=int, action='store',
                         default=5, help='Margin for water mask bounding box (km)')
     parser.add_argument('-v', '--version', type=str, action='store',
-                        dest='version', default='0.3',
+                        dest='version', default='0.5',
                         help='Version for water mask')
     parser.add_argument('-b', '--bbox', type=float, action='store',
                         dest='bbox', default=None, nargs='+',
@@ -70,7 +70,7 @@ def check_dateline(poly):
 
     xmin, _, xmax, _ = poly.bounds
     # Check dateline crossing
-    if ((xmax - xmin > 180.0) or (xmin <= 180.0 <= xmax)):
+    if ((xmax - xmin > 180.0) or (xmin <= 180.0 <= xmax) or (xmin <= -180.0 <= xmax)):
         dateline = shapely.wkt.loads('LINESTRING( 180.0 -90.0, 180.0 90.0)')
 
         # build new polygon with all longitudes between 0 and 360
@@ -86,11 +86,11 @@ def check_dateline(poly):
 
         polys = list(decomp)
 
-        # The Copernicus DEM used for NISAR processing has a longitude
+        # The water mask used for NISAR processing has a longitude
         # range [-180, +180]. The current version of gdal.Translate
         # does not allow to perform dateline wrapping. Therefore, coordinates
-        # above 180 need to be wrapped down to -180 to match the Copernicus
-        # DEM longitude range
+        # above 180 need to be wrapped down to -180 to match the water mask
+        # longitude range
         for polygon_count in range(2):
             x, y = polys[polygon_count].exterior.coords.xy
             if not any([k > 180 for k in x]):  # pylint: disable=use-a-generator
@@ -292,12 +292,12 @@ def translate_watermask(vrt_filename, outpath, x_min, x_max, y_min, y_max):
     length = ds.GetRasterBand(1).YSize
     width = ds.GetRasterBand(1).XSize
 
-    # Declare lambda function to snap min/max X and Y
+    # Declare function to snap min/max X and Y
     # coordinates over the water grid
-    snap_coord = lambda val, snap, offset, round_func: round_func(  # noqa: E731
-        float(val - offset) / snap) * snap + offset
+    def snap_coord(val, snap, offset, round_func):
+        return round_func((val - offset) / snap) * snap + offset
 
-    # Snap edge coordinates using the DEM pixel spacing
+    # Snap edge coordinates using the raster pixel spacing
     # and starting coordinates. Max values are rounded
     # using np.ceil and min values are rounded with np.floor
     x_min = snap_coord(x_min, xres, input_x_min, np.floor)
@@ -321,9 +321,9 @@ def translate_watermask(vrt_filename, outpath, x_min, x_max, y_min, y_max):
     # bbox crosses the anti-meridian, the script divides it in two
     # bboxes neighboring the anti-meridian. Here, x_min and x_max
     # represent the min and max longitude coordinates of one of these
-    # bboxes. We Add 360 deg if the min longitude of the downloaded DEM
+    # bboxes. We Add 360 deg if the min longitude of the downloaded water mask
     # tile is < 180 deg i.e., there is a dateline crossing.
-    # This ensure that the mosaicked DEM VRT will span a min
+    # This ensure that the mosaicked water mask VRT will span a min
     # range of longitudes rather than the full [-180, 180] deg
     sr = osr.SpatialReference(ds.GetProjection())
     epsg_str = sr.GetAttrValue("AUTHORITY", 1)
@@ -382,43 +382,45 @@ def download_watermask(polys, epsgs, outfile, version):
             xmin, ymin, xmax, ymax = poly.bounds
             translate_watermask(vrt_filename, outpath, xmin, xmax, ymin, ymax)
 
-        # Get the WATER description from the README.txt file using GDAL
-        in_readme_path = vrt_filename.replace(f'EPSG{epsg}.vrt', f'EPSG{epsg}/LICENSE.txt')
-        try:
-            water_descr = parse_readme_fields(in_readme_path)
+        # Build vrt with downloaded watermasks
+        vrt_dataset = gdal.BuildVRT(outfile, watermask_list)
 
-            # Build vrt with downloaded watermasks
-            vrt_dataset = gdal.BuildVRT(outfile, watermask_list)
-            # vrt_dataset.SetMetadataItem("dem_description", f'{dem_descr}')
-            for key, val in water_descr.items():
-                # # convert the bullet header to a tidy metadata key
-                # clean_key = key.lower().replace(" ", "_")
-                # vrt_dataset.SetMetadataItem(clean_key, val)
-                vrt_dataset.SetMetadataItem(key, val)
-        except Exception as e:
+        # Get the WATER description from the LICENSE.txt file using GDAL
+        in_license_path = vrt_filename.replace(f'EPSG{epsg}.vrt', f'EPSG{epsg}/LICENSE.txt')
+        license_exists = gdal.VSIStatL(in_license_path) is not None
+
+        if license_exists:
+            try:
+                water_descr = parse_license_fields(in_license_path)
+                for key, val in water_descr.items():
+                    vrt_dataset.SetMetadataItem(key, val)
+
+            except Exception as e:
+                warnings.warn(
+                    f"Found {license_path} but could not parse it ({e}). "
+                    "Proceeding without metadata."
+                )
+        else:
             warnings.warn(
-                f"Could not read or parse README.txt at {in_readme_path} "
-                f"({e}). Proceeding without metadata."
+                f"No LICENSE.txt found at {in_license_path} "
+                f"(expected for WATERMASK v{version}). Proceeding without metadata."
             )
-
     except Exception:
         errmsg = f'Failed to download NISAR WATERMASK {version} from s3 bucket. ' \
                  f'Maybe {version} is not currently supported.'
-        raise ValueError(errmsg)
+        raise ValueError(errmsg) from e
 
 
-def parse_readme_fields(
-        readme_path: str,
-        encoding: str = "utf-8"
-        ) -> dict[str, str]:
+def parse_license_fields(license_path: str,
+                         encoding: str = "utf-8") -> dict[str, str]:
     """
-    Fetch a README.txt living in an S3 bucket via GDAL and return all
+    Fetch a LICENSE.txt living in an S3 bucket via GDAL and return all
     bullet style fields in a dictionary.
 
     Parameters
     ----------
-    readme_path : str
-        `/vsis3/.../README.txt` or any other GDAL compatible URI.
+    license_path : str
+        `/vsis3/.../LICENSE.txt` or any other GDAL compatible URI.
     encoding : str, default "utf-8"
         Text encoding to decode the bytes.
 
@@ -428,24 +430,39 @@ def parse_readme_fields(
         Mapping from the bullet header (e.g. "Short description")
         to its full text (potentially multi line).
     """
-    # ---- 1. Pull the file into memory ----------------------------------
-    fp = gdal.VSIFOpenL(readme_path, "rb")
+    stat = gdal.VSIStatL(license_path)
+    if stat is None:
+        raise ValueError(f"No LICENSE.txt found at {license_path}")
+
+    MAX_SIZE = 10_000_000 # 10 MB sanity limit
+    if stat and stat.size > MAX_SIZE:
+        warnings.warn(
+            f"{license_path} is {stat.size/1_000_000:.1f} MB—"
+            "skipping LICENSE parsing."
+        )
+
+    # Pull the file into memory
+    fp = gdal.VSIFOpenL(license_path, "rb")
     if fp is None:
-        raise IOError(f"Could not open {readme_path} via GDAL")
+        raise IOError(f"Could not open {license_path} via GDAL")
 
     try:
-        data = gdal.VSIFReadL(1, 10_000_000, fp)      # read up to 10 MB
+        data = gdal.VSIFReadL(1, MAX_SIZE, fp)      # read up to 10 MB
     finally:
         gdal.VSIFCloseL(fp)
 
+    if data is None or len(data) == 0:
+        raise IOError(f"Failed to read any data from {license_path}")
+
     text = data.decode(encoding, errors="replace")
 
-    # ---- 2. Parse bullet fields ----------------------------------------
+    # Parse bullet fields
     fields = {}
     curr_key, curr_val_lines = None, []
 
+    regex = re.compile(r"^\s*-\s+(.*?):\s*(.*)$")
     for line in text.splitlines():
-        bullet_match = re.match(r"^\s*-\s+(.*?):\s*(.*)$", line)
+        bullet_match = regex.match(line)
         if bullet_match:
             # Save the previous field before starting a new one
             if curr_key is not None:
@@ -465,7 +482,7 @@ def parse_readme_fields(
         fields[curr_key] = "\n".join(curr_val_lines).strip()
 
     if not fields:
-        raise ValueError("No bullet‑style fields detected in README.txt")
+        raise ValueError(f"No bullet-style fields detected in {license_path}")
 
     return fields
 
@@ -551,7 +568,7 @@ def check_watermask_overlap(watermaskFilepath, polys):
     return perc_area
 
 
-def check_aws_connection(version='0.5'):
+def check_aws_connection(version):
     """Check connection to AWS s3://nisar-static-repo/WATER_MASK bucket
        Throw exception if no connection is established
 
@@ -581,7 +598,7 @@ def apply_margin_polygon(polygon, margin_in_km=5):
     ----------
     polygon: shapely.Geometry.Polygon
         Bounding polygon covering the area on the
-        ground over which download the DEM
+        ground over which download the water mask
     margin_in_km: np.float
         Buffer in km to add to polygon
 
@@ -684,7 +701,7 @@ def main(opts):
             print('Insufficient water mask coverage. Errors might occur')
         print(f'water mask coverage is {overlap} %')
     else:
-        # Check connection to AWS s3 nisar-WATERMASK  ucket
+        # Check connection to AWS s3 nisar-WATERMASK bucket
         try:
             check_aws_connection(opts.version)
         except ImportError:
