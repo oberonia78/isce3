@@ -65,6 +65,9 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
             unwrapped phase array of low sub-band interferogram
         phi_sub_high : numpy.ndarray
             unwrapped phase array of high sub-band interferogram
+        phi_diff_low_high : numpy.ndarray
+            unwrapped phase array of difference between low and
+            high sub-band interferograms
         phi_main : numpy.ndarray
             unwrapped phase array of frequency A interferogram
         phi_side : numpy.ndarray
@@ -116,7 +119,7 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
                 phi_main = phi_main - 2 * np.pi * comm_unwcor_coef
                 phi_side = phi_side - 2 * np.pi *\
                     (comm_unwcor_coef + diff_unwcor_coef)
-        # Estimate dispersive / non-dispersive components after correcting 
+        # Estimate dispersive / non-dispersive components after correcting
         # unwrapped phase
         dispersive, non_dispersive = self.estimate_iono(
             f0=self.f0,
@@ -125,9 +128,8 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
             phi1=phi_side,
             phi_diff_ms=phi_diff_ms)
 
-        dispersive[no_data_array] = no_data
-        non_dispersive[no_data_array] = no_data
-
+        dispersive = np.where(no_data_array, no_data, dispersive)
+        non_dispersive = np.where(no_data_array, no_data, non_dispersive)
         return dispersive, non_dispersive
 
     def get_coherence_mask_array(
@@ -149,6 +151,9 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
             coherence of main-band interferogram
         side_array : numpy.ndarray
             coherence of side-band interferogram
+        diff_ms_array : numpy.ndarray
+            coherence of difference between main and side band
+            interferograms
         low_band_array : numpy.ndarray
             coherence of main-band interferogram
         high_band_array : numpy.ndarray
@@ -199,10 +204,15 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
             coherence of main-band interferogram
         side_array : numpy.ndarray
             coherence of side-band interferogram
+        diff_ms_array : numpy.ndarray
+            coherence of difference between main and side band
+            interferograms
         low_band_array : numpy.ndarray
             coherence of main-band interferogram
         high_band_array : numpy.ndarray
             coherence of side-band interferogram
+        diff_low_high_band_array : numpy.ndarray
+            coherence of difference (high-low) interferogram
         slant_main : numpy.ndarray
             slant range array of frequency A band
         slant_side : numpy.ndarray

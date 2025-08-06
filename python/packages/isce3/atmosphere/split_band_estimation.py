@@ -132,8 +132,8 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             phi0_diff_low_high=phi_diff_low_high
             )
 
-        dispersive[no_data_array] = no_data
-        non_dispersive[no_data_array] = no_data
+        dispersive = np.where(no_data_array, no_data, dispersive)
+        non_dispersive = np.where(no_data_array, no_data, non_dispersive)
 
         return dispersive, non_dispersive
 
@@ -573,7 +573,7 @@ class LowHighSubbandIonosphereEstimation(SplitBandIonosphereEstimation):
 
 
 class MainDiffLowHighSubbandIonosphereEstimation(SplitBandIonosphereEstimation):
-    '''Ionosphere estimation from main band and difference between 
+    '''Ionosphere estimation from main band and difference between
        low and high subbands
     '''
     def __init__(self,
@@ -833,23 +833,30 @@ def estimate_iono_low_high(
     non_dispersive : numpy.ndarray
         numpy array of estimated non-dispersive
     """
-
-    y_size, x_size = phi0_low.shape
-    d = np.ones((2, y_size * x_size))
-    d[0, :] = phi0_low.flatten()
-    d[1, :] = phi0_high.flatten()
-    coeff_mat = np.ones((2, 2))
+    if phi0_low.shape != phi0_high.shape:
+        raise ValueError("phi0_low and phi0_high must have identical shapes")
     # Coefficient matrix for solving dispersive and non-dispersive
     # components
-    coeff_mat[0, 0] = freq_low / f0
-    coeff_mat[0, 1] = f0 / freq_low
-    coeff_mat[1, 0] = freq_high / f0
-    coeff_mat[1, 1] = f0 / freq_high
-    coeff_mat1 = np.linalg.pinv(coeff_mat)
-    output = np.dot(coeff_mat1, d)
+    a = freq_low / f0
+    b = f0 / freq_low
+    c = freq_high / f0
+    d = f0 / freq_high
 
-    non_dispersive = output[0, :].reshape(y_size, x_size)
-    dispersive = output[1].reshape(y_size, x_size)
+    det = a * d - b * c
+
+    if det == 0:
+        raise ZeroDivisionError("Frequency combination leads to singular matrix")
+
+    # rows of A⁻¹
+    m11 =  d / det
+    m12 = -b / det
+    m21 = -c / det
+    m22 =  a / det
+
+    # Compute outputs
+
+    non_dispersive = m11 * phi0_low + m12 * phi0_high
+    dispersive = m21 * phi0_low + m22 * phi0_high
 
     return dispersive, non_dispersive
 
@@ -864,7 +871,7 @@ def estimate_iono_main_diff_low_high(
         phi0_high=None):
 
     """Estimates ionospheric phase from low and high sub-band
-    interferograms i.e. split_main_band method
+    interferograms by the split_main_band method
 
     Parameters
     ----------
@@ -894,8 +901,5 @@ def estimate_iono_main_diff_low_high(
 
     dispersive = x_coeff * phi0_main + z_coeff * phi0_diff_low_high
     non_dispersive = phi0_main / 2 + z_coeff * phi0_diff_low_high
-
-    non_dispersive = non_dispersive.reshape(y_size, x_size)
-    dispersive = dispersive.reshape(y_size, x_size)
 
     return dispersive, non_dispersive

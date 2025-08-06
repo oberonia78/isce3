@@ -332,8 +332,8 @@ def project_map_to_radar(cfg, input_data_path, freq):
         # if multi-looks are 1 or 2,
         # slice_az_end and slice_rg_end are 0. To avoid the positive
         # number, we take None.
-        az_size = int(rows / az_looks)
-        rg_size = int(cols / rg_looks)
+        az_size = rows // az_looks
+        rg_size = cols // rg_looks
         slice_az_start = int(az_looks / 2)
         slice_az_end = az_size * az_looks
         slice_rg_start = int(rg_looks / 2)
