@@ -688,7 +688,7 @@ ionosphere_phase_correction_options:
     #    subbands after splitting main band
     # - 'main_side_band' uses the additional NISAR side-band to estimate the
     #    ionosphere phase screen. Main and side-bands are intended to be at the same polarization
-    # - 'main_side_band' uses the additional NISAR side-band to estimate the ionosphere
+    # - 'main_diff_ms_band' uses the additional NISAR side-band to estimate the ionosphere
     #    phase screen by utilzing main band and difference between main and side band
     spectral_diversity: enum('split_main_band', 'main_diff_low_high_subband', 'main_side_band', 'main_diff_ms_band', required=False)
     split_range_spectrum: include('split_range_spectrum_options', required=False)
