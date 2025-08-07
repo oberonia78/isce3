@@ -386,18 +386,19 @@ def download_watermask(polys, epsgs, outfile, version):
         vrt_dataset = gdal.BuildVRT(outfile, watermask_list)
 
         # Get the WATER description from the LICENSE.txt file using GDAL
-        in_license_path = vrt_filename.replace(f'EPSG{epsg}.vrt', f'EPSG{epsg}/LICENSE.txt')
+        in_license_path = vrt_filename.replace(f'EPSG{epsg}.vrt',
+                                               f'EPSG{epsg}/LICENSE.txt')
         license_exists = gdal.VSIStatL(in_license_path) is not None
 
         if license_exists:
             try:
-                water_descr = parse_license_fields(in_license_path)
-                for key, val in water_descr.items():
-                    vrt_dataset.SetMetadataItem(key, val)
+                water_descr = parse_license_notes(in_license_path)
+                vrt_dataset.SetMetadataItem("water_mask_description",
+                                            f'{water_descr}')
 
             except Exception as e:
                 warnings.warn(
-                    f"Found {license_path} but could not parse it ({e}). "
+                    f"Found {in_license_path} but could not parse it ({e}). "
                     "Proceeding without metadata."
                 )
         else:
@@ -405,17 +406,18 @@ def download_watermask(polys, epsgs, outfile, version):
                 f"No LICENSE.txt found at {in_license_path} "
                 f"(expected for WATERMASK v{version}). Proceeding without metadata."
             )
-    except Exception:
+    except Exception as e:
         errmsg = f'Failed to download NISAR WATERMASK {version} from s3 bucket. ' \
                  f'Maybe {version} is not currently supported.'
         raise ValueError(errmsg) from e
 
 
-def parse_license_fields(license_path: str,
-                         encoding: str = "utf-8") -> dict[str, str]:
+def parse_license_notes(license_path: str,
+                        encoding: str = "utf-8") -> str | None:
     """
-    Fetch a LICENSE.txt living in an S3 bucket via GDAL and return all
-    bullet style fields in a dictionary.
+    Extract the multi-line text of the “Notes” bullet from
+    a LICENSE.txt in an S3 bucket via GDAL and returning the
+    value without the leading "- Notes:" header.
 
     Parameters
     ----------
@@ -426,65 +428,49 @@ def parse_license_fields(license_path: str,
 
     Returns
     -------
-    fields : dict[str, str]
-        Mapping from the bullet header (e.g. "Short description")
-        to its full text (potentially multi line).
+    str | None
+        The extracted Notes text (possibly multi-line) with surrounding
+        whitespace stripped, or None if no “Notes” bullet is found.
     """
     stat = gdal.VSIStatL(license_path)
     if stat is None:
         raise ValueError(f"No LICENSE.txt found at {license_path}")
 
-    MAX_SIZE = 10_000_000 # 10 MB sanity limit
-    if stat and stat.size > MAX_SIZE:
-        warnings.warn(
-            f"{license_path} is {stat.size/1_000_000:.1f} MB—"
-            "skipping LICENSE parsing."
-        )
+    MAX_SIZE = 10_000_000  # 10 MB
 
-    # Pull the file into memory
+    if stat.size and stat.size > MAX_SIZE:
+        warnings.warn(
+            f"{license_path} is {stat.size/1_000_000:.1f} MB — "
+            f"only the first {MAX_SIZE/1_000_000:.0f} MB will be parsed."
+        )
     fp = gdal.VSIFOpenL(license_path, "rb")
     if fp is None:
         raise IOError(f"Could not open {license_path} via GDAL")
-
     try:
-        data = gdal.VSIFReadL(1, MAX_SIZE, fp)      # read up to 10 MB
+        data = gdal.VSIFReadL(1, min(stat.size, MAX_SIZE), fp)
     finally:
         gdal.VSIFCloseL(fp)
 
-    if data is None or len(data) == 0:
+    if not data:
         raise IOError(f"Failed to read any data from {license_path}")
 
     text = data.decode(encoding, errors="replace")
 
-    # Parse bullet fields
-    fields = {}
-    curr_key, curr_val_lines = None, []
+    if "notes:" not in text.lower():
+        warnings.warn(f'No "Notes" field found in {license_path}')
+        return None
 
-    regex = re.compile(r"^\s*-\s+(.*?):\s*(.*)$")
-    for line in text.splitlines():
-        bullet_match = regex.match(line)
-        if bullet_match:
-            # Save the previous field before starting a new one
-            if curr_key is not None:
-                fields[curr_key] = "\n".join(curr_val_lines).strip()
+    NEXT_BULLET = r"(?=^\s*-\s+[^:\n]+:\s*|\Z)"
+    NOTES_RE = re.compile(
+        rf"^\s*-\s*Notes:\s*(.*?){NEXT_BULLET}",
+        flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
 
-            # Start a new field
-            curr_key = bullet_match.group(1).strip()
-            first_val_segment = bullet_match.group(2).rstrip()
-            curr_val_lines = [first_val_segment] if first_val_segment else []
-        else:
-            # Continuation of current bullet (indentation or empty line)
-            if curr_key is not None:
-                curr_val_lines.append(line.rstrip())
+    m = NOTES_RE.search(text)
+    if not m:
+        warnings.warn(f'No "Notes" field found in {license_path}')
+        return None
 
-    # Capture the final field
-    if curr_key is not None:
-        fields[curr_key] = "\n".join(curr_val_lines).strip()
-
-    if not fields:
-        raise ValueError(f"No bullet-style fields detected in {license_path}")
-
-    return fields
+    return m.group(1).strip()
 
 
 def transform_polygon_coords(polys, epsgs):
