@@ -1,7 +1,8 @@
 import os
 
-from multiprocessing import Pool
 import h5py
+import journal
+from multiprocessing import Pool
 import numpy as np
 from osgeo import gdal
 from scipy.interpolate import griddata
@@ -943,6 +944,8 @@ def remove_small_components(image, min_cluster_pixels):
         A 2D array of the same shape as the input image, where small clusters
         have been removed and replaced with NaN.
     """
+    info_channel = journal.info("ionosphere_filter.remove_small_components")
+
     if not isinstance(min_cluster_pixels, int):
         raise TypeError("min_cluster_pixels must be an int")
     if min_cluster_pixels < 0:
@@ -952,13 +955,13 @@ def remove_small_components(image, min_cluster_pixels):
     n_valid = int(valid_mask.sum())
 
     if min_cluster_pixels == 0:
-        print("[remove_small_components] min_cluster_pixels == 0 → "
-              "no components will be removed.")
+        info_channel.log("[remove_small_components] min_cluster_pixels == 0 → "
+                         "no components will be removed.")
         return image.copy()
 
     if min_cluster_pixels >= n_valid:
-        raise ValueError(
-            f"min_cluster_pixels ({min_cluster_pixels}) must be smaller than "
+        info_channel.log(
+            f"min_cluster_pixels ({min_cluster_pixels}) are lager than "
             f"the total number of valid pixels ({n_valid})."
         )
 

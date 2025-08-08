@@ -297,7 +297,7 @@ runconfig:
                     # whose size is strictly smaller than `min_cluster_pixels`.
                     # When `min_cluster_pixels` is 0, this pre-removal step is
                     # skipped entirely.
-                    min_cluster_pixels: 5
+                    min_cluster_pixels: 2
 
                     # Maximum radius used when bridging disconnected
                     # regions.
