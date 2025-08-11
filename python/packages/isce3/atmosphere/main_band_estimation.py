@@ -256,6 +256,8 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
             coherence of main-band interferogram
         side_array : numpy.ndarray
             coherence of side-band interferogram
+        diff_ms_array : numpy.ndarray
+            coherence of difference (main-side) interferogram
         low_band_array : numpy.ndarray
             coherence of low subband interferogram
         high_band_array : numpy.ndarray
@@ -289,8 +291,12 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
                 slant_main,
                 slant_side,
                 main_array)
-        mask_array = (main_array > threshold) & \
-                     (side_array > threshold)
+        if diff_ms_array is not None:
+            mask_array = (main_array > threshold) & \
+                         (diff_ms_array > threshold)
+        else:
+            mask_array = (main_array > threshold) & \
+                         (side_array > threshold)
 
         return mask_array
 
@@ -298,6 +304,7 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
             self,
             main_array=None,
             side_array=None,
+            diff_ms_array=None,
             low_band_array=None,
             high_band_array=None,
             diff_low_high_band_array=None,
@@ -317,6 +324,8 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
             image of main-band interferogram
         side_array : numpy.ndarray
             image of side-band interferogram
+        diff_ms_array : numpy.ndarray
+            image of difference between low and high subbands
         low_band_array : numpy.ndarray
             image of low subband interferogram
         high_band_array : numpy.ndarray
@@ -343,11 +352,16 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
                 slant_main,
                 slant_side,
                 main_array)
-
-        mask_array = (main_array != invalid_value) & \
-                     (side_array != invalid_value) & \
-                     ~np.isnan(main_array) & \
-                     ~np.isnan(side_array)
+        if diff_ms_array is not None:
+            mask_array = (main_array != invalid_value) & \
+                         (diff_ms_array != invalid_value) & \
+                         ~np.isnan(main_array) & \
+                         ~np.isnan(diff_ms_array)
+        else:
+            mask_array = (main_array != invalid_value) & \
+                         (side_array != invalid_value) & \
+                         ~np.isnan(main_array) & \
+                         ~np.isnan(side_array)
 
         return mask_array
 

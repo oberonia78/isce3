@@ -794,6 +794,11 @@ def insar_ionosphere_pair(original_cfg, runw_hdf5):
                 del iono_insar_cfg['processing']['input_subset'][
                     'list_of_frequencies'][freq]
 
+        if iono_method in ['main_diff_ms_band']:
+            unwrapping_flag = False
+        else:
+            unwrapping_flag = True
+
         if rerun_insar_pairs > 0:
             # update paths
             new_scratch = pathlib.Path(iono_path, f'{iono_method}')
@@ -816,20 +821,23 @@ def insar_ionosphere_pair(original_cfg, runw_hdf5):
             run_insar_workflow(iono_insar_cfg,
                                partial_orig_cfg_dict,
                                out_paths,
-                               unwrapping_flag=True)
+                               unwrapping_flag=unwrapping_flag)
 
         if iono_method == 'main_diff_ms_band':
             diff_dir = pathlib.Path(orig_scratch_path,
                                     'ionosphere', 'diff_ms')
             phase_first = original_out_paths['RIFG']
             if rerun_insar_pairs > 0:
-
+                additional_runw = f'{new_scratch}/RUNW.h5'
                 phase_second = pathlib.Path(orig_scratch_path,
                                             'ionosphere',
                                             'main_diff_ms_band',
                                             'RIFG.h5')
             else:
+                out_paths = original_out_paths
+                new_scratch = orig_scratch_path
                 phase_second = out_paths['RIFG']
+                additional_runw = out_paths['RUNW']
 
             diff_phase_output = pathlib.Path(diff_dir, 'RIFG.h5')
             iono_insar_cfg['product_path_group'][
@@ -840,6 +848,10 @@ def insar_ionosphere_pair(original_cfg, runw_hdf5):
                 'coregistered_slc_path'] = new_scratch
             iono_insar_cfg['processing']['crossmul'][
                 'coregistered_slc_path'] = new_scratch
+            iono_insar_cfg['processing']['input_subset'][
+                'list_of_frequencies']['B'] = iono_pol
+            iono_insar_cfg['processing']['input_subset'][
+                'list_of_frequencies']['A'] = []
             _, out_paths = h5_prep.get_products_and_paths(iono_insar_cfg)
             os.makedirs(diff_dir, exist_ok=True)
             shutil.copy(phase_second, diff_phase_output)
@@ -1271,7 +1283,7 @@ def run(cfg: dict, runw_hdf5: str):
             sub_high_conn_image = None
             main_conn_image = None
             side_conn_image = None
-            diff_conn_image = None
+            diff_ms_conn_image = None
 
             if iono_method in iono_method_subbands:
                 # Initialize array for block rasters
@@ -1430,14 +1442,17 @@ def run(cfg: dict, runw_hdf5: str):
                 if iono_method == 'main_diff_ms_band':
                     diff_ms_image = np.empty([block_rows_data, cols_side],
                                              dtype=float)
-                    diff_coh_image = np.empty([block_rows_data, cols_side],
-                                              dtype=float)
+                    diff_ms_coh_image = np.empty([block_rows_data, cols_side],
+                                                 dtype=float)
 
                 if "connected_components" in mask_type:
                     main_conn_image = np.empty(
                         [block_rows_data, cols_main],
                         dtype=float)
                     side_conn_image = np.empty(
+                        [block_rows_data, cols_side],
+                        dtype=float)
+                    diff_ms_conn_image = np.empty(
                         [block_rows_data, cols_side],
                         dtype=float)
 
@@ -1484,6 +1499,16 @@ def run(cfg: dict, runw_hdf5: str):
                                     row_start:row_start + block_rows_data,
                                     :]
                                     )
+                            src_diff_h5[rcoh_path_freq_b].read_direct(
+                                diff_ms_coh_image,
+                                np.s_[
+                                    row_start:row_start + block_rows_data,
+                                    :]
+                                    )
+                            if "connected_components" in mask_type:
+                                src_side_h5[rcom_path_freq_b].read_direct(
+                                    diff_ms_conn_image,
+                                    np.s_[row_start:row_start + block_rows_data, :])
 
                 if bridge_algorithm_bool:
                     main_image = bridge_unwrapped_phase(
@@ -1627,6 +1652,7 @@ def run(cfg: dict, runw_hdf5: str):
                     mask_image = iono_phase_obj.get_coherence_mask_array(
                         main_array=main_coh_image,
                         side_array=side_coh_image,
+                        diff_ms_array=diff_ms_coh_image,
                         low_band_array=sub_low_coh_image,
                         high_band_array=sub_high_coh_image,
                         diff_low_high_band_array=diff_coh_image,
@@ -1638,6 +1664,7 @@ def run(cfg: dict, runw_hdf5: str):
                     mask_image = iono_phase_obj.get_conn_component_mask_array(
                         main_array=main_conn_image,
                         side_array=side_conn_image,
+                        diff_ms_array=diff_ms_conn_image,
                         low_band_array=sub_low_conn_image,
                         high_band_array=sub_high_conn_image,
                         slant_main=main_slant,
@@ -1674,6 +1701,7 @@ def run(cfg: dict, runw_hdf5: str):
                     main_array=main_image,
                     side_array=side_image,
                     low_band_array=sub_low_image,
+                    diff_ms_array=diff_ms_image,
                     diff_low_high_band_array=diff_subband_image,
                     high_band_array=sub_high_image,
                     slant_main=main_slant,
@@ -1683,12 +1711,14 @@ def run(cfg: dict, runw_hdf5: str):
                 valid_area_coh = iono_phase_obj.get_valid_area(
                     main_array=main_coh_image,
                     side_array=side_coh_image,
+                    diff_ms_array=diff_ms_coh_image,
                     low_band_array=sub_low_coh_image,
                     high_band_array=sub_high_coh_image,
                     diff_low_high_band_array=diff_coh_image,
                     slant_main=main_slant,
                     slant_side=side_slant,
                     invalid_value=0)
+
                 mask_path = os.path.join(
                     iono_path, iono_method, pol_comb_str, 'mask_array')
                 # Write sigma of dispersive phase into the
