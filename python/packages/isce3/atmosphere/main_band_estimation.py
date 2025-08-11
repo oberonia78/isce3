@@ -325,7 +325,8 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
         side_array : numpy.ndarray
             image of side-band interferogram
         diff_ms_array : numpy.ndarray
-            image of difference between low and high subbands
+            image of difference between main and side
+            interferogram
         low_band_array : numpy.ndarray
             image of low subband interferogram
         high_band_array : numpy.ndarray
