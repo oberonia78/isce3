@@ -141,6 +141,7 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             self,
             main_array=None,
             side_array=None,
+            diff_ms_array=None,
             low_band_array=None,
             high_band_array=None,
             diff_low_high_band_array=None,
@@ -155,6 +156,9 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             coherence of main-band interferogram
         side_array : numpy.ndarray
             coherence of side-band interferogram
+        diff_ms_array : numpy.ndarray
+            coherence of difference between main and side band
+            interferograms
         low_band_array : numpy.ndarray
             coherence of low subband interferogram
         high_band_array : numpy.ndarray
@@ -185,6 +189,7 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             self,
             main_array=None,
             side_array=None,
+            diff_ms_array=None,
             low_band_array=None,
             high_band_array=None,
             diff_low_high_band_array=None,
@@ -198,6 +203,9 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             coherence of main-band interferogram
         side_array : numpy.ndarray
             coherence of side-band interferogram
+        diff_ms_array : numpy.ndarray
+            coherence of difference between main and side band
+            interferograms
         low_band_array : numpy.ndarray
             coherence of main-band interferogram
         high_band_array : numpy.ndarray
@@ -217,15 +225,22 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             1: valid pixels,
             0: invalid pixels.
         """
-        return self.get_mask_array(main_array, side_array, low_band_array,
-                                   high_band_array, diff_low_high_band_array,
-                                   slant_main, slant_side,
-                                   0)
+        return self.get_mask_array(
+            main_array=main_array,
+            side_array=side_array,
+            diff_ms_array=diff_ms_array,
+            low_band_array=low_band_array,
+            high_band_array=high_band_array,
+            diff_low_high_band_array=diff_low_high_band_array,
+            slant_main=slant_main,
+            slant_side=slant_side,
+            threshold=0)
 
     def get_mask_array(
             self,
             main_array=None,
             side_array=None,
+            diff_ms_array=None,
             low_band_array=None,
             high_band_array=None,
             diff_low_high_band_array=None,
@@ -242,6 +257,8 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             coherence of main-band interferogram
         side_array : numpy.ndarray
             coherence of side-band interferogram
+        diff_ms_array : numpy.ndarray
+            coherence of difference (main-side) interferogram
         low_band_array : numpy.ndarray
             coherence of low subband interferogram
         high_band_array : numpy.ndarray
@@ -295,6 +312,7 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             self,
             main_array=None,
             side_array=None,
+            diff_ms_array=None,
             low_band_array=None,
             high_band_array=None,
             diff_low_high_band_array=None,
@@ -314,6 +332,9 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             image of main-band interferogram
         side_array : numpy.ndarray
             image of side-band interferogram
+        diff_ms_array : numpy.ndarray
+            image of difference between main and side
+            interferogram
         low_band_array : numpy.ndarray
             image of main-band interferogram
         high_band_array : numpy.ndarray
