@@ -180,10 +180,16 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             1: valid pixels,
             0: invalid pixels.
         """
-        return self.get_mask_array(main_array, side_array, low_band_array,
-                                   high_band_array, diff_low_high_band_array,
-                                   slant_main, slant_side,
-                                   threshold)
+        return self.get_mask_array(
+            main_array=main_array,
+            side_array=side_array,
+            diff_ms_array=diff_ms_array,
+            low_band_array=low_band_array,
+            high_band_array=high_band_array,
+            diff_low_high_band_array=diff_low_high_band_array,
+            slant_main=slant_main,
+            slant_side=slant_side,
+            threshold=threshold)
 
     def get_conn_component_mask_array(
             self,
@@ -869,10 +875,10 @@ def estimate_iono_low_high(
         raise ZeroDivisionError("Frequency combination leads to singular matrix")
 
     # rows of A⁻¹
-    m11 =  d / det
+    m11 = d / det
     m12 = -b / det
     m21 = -c / det
-    m22 =  a / det
+    m22 = a / det
 
     # Compute outputs
 
