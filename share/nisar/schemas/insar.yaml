@@ -25,7 +25,7 @@ runconfig:
             # REQUIRED - Digital elevation model
             dem_file: str()
 
-            # PLACEHOLDER - Digital elevation model file description, optional
+            # Digital elevation model file description, optional
             dem_file_description: str(required=False)
 
             # Water distance map used for water mask in unwrapping and
@@ -34,6 +34,10 @@ runconfig:
             # 101-200 (distance from inlandwater boundary)
 
             water_mask_file: str(required=False)
+
+            # Water mask file description, optional
+            water_mask_file_description: str(required=False)
+
             orbit_files: include('external_orbit_options', required=False)
 
             # Troposphere weather model
@@ -682,11 +686,15 @@ bandpass_options:
 ionosphere_phase_correction_options:
     # Boolean flag to enable/disable ionosphere phase correction
     enabled: bool(required=False)
-    # 'split_main_band' splits the main range bandwidth into a low and high subband
-    # being 1/3 (fixed for now) of the total main range spectrum.
-    # 'main_side_band' uses the additional NISAR 5 MHz side-band to estimate the
-    # ionosphere phase screen. Main and side-bands are intended to be at the same polarization
-    spectral_diversity: enum('split_main_band', 'main_side_band', 'main_diff_ms_band', required=False)
+    # - 'split_main_band' splits the main range bandwidth into a low and high subband
+    #    being 1/3 (fixed for now) of the total main range spectrum.
+    # - 'main_diff_low_high_subband' uses the main band and difference between low and high
+    #    subbands after splitting main band
+    # - 'main_side_band' uses the additional NISAR side-band to estimate the
+    #    ionosphere phase screen. Main and side-bands are intended to be at the same polarization
+    # - 'main_diff_ms_band' uses the additional NISAR side-band to estimate the ionosphere
+    #    phase screen by utilzing main band and difference between main and side band
+    spectral_diversity: enum('split_main_band', 'main_diff_low_high_subband', 'main_side_band', 'main_diff_ms_band', required=False)
     split_range_spectrum: include('split_range_spectrum_options', required=False)
     list_of_frequencies: include('ionosphere_freq_pol_options', required=False)
     dispersive_filter: include('dispersive_filter_options', required=False)

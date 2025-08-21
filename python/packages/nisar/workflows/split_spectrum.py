@@ -105,7 +105,7 @@ def run(cfg: dict):
     t_all = time.time()
 
     # Check split spectrum method
-    if method == 'split_main_band':
+    if method in ['split_main_band', 'main_diff_low_high_subband']:
         split_band_path = pathlib.Path(
             f"{scratch_path}/ionosphere/split_spectrum/")
         split_band_path.mkdir(parents=True, exist_ok=True)

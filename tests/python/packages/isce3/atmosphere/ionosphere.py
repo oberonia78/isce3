@@ -10,7 +10,8 @@ from isce3.atmosphere.main_band_estimation import (compute_unwrapp_error_main_di
                                                    estimate_iono_main_side,
                                                    estimate_iono_main_diff)
 from isce3.atmosphere.split_band_estimation import (compute_unwrapp_error_split_main_band,
-                                                    estimate_iono_low_high)
+                                                    estimate_iono_low_high,
+                                                    estimate_iono_main_diff_low_high)
 
 def simulate_ifgrams(f, dr, dTEC):
     phi_non_dispersive = 4.0*np.pi*f*dr/isce3.core.speed_of_light
@@ -43,6 +44,13 @@ def test_ionosphere_methods():
                                                    freq_high=f0H,
                                                    phi0_low=phi0L,
                                                    phi0_high=phi0H)
+    
+    phi_iono_main_LH, phi_n_main_LH = estimate_iono_main_diff_low_high(
+                                                   f0=f0,
+                                                   freq_low=f0L,
+                                                   freq_high=f0H,
+                                                   phi0_main=phi0,
+                                                   phi0_diff_low_high=phi0_LH)
 
     phi_iono_ms, phi_n_ms = estimate_iono_main_side(f0=f0,
                                                     f1=f1,
@@ -52,7 +60,7 @@ def test_ionosphere_methods():
     phi_iono_md, phi_n_md = estimate_iono_main_diff(f0=f0,
                                                     f1=f1,
                                                     phi0=phi0,
-                                                    phi1=phi1)
+                                                    phi_diff_ms=phi_ms)
 
     difference_ref_ls_abs = np.abs(phi0_iono - phi_iono_LH)
     difference_ref_ms_abs = np.abs(phi0_iono - phi_iono_ms)
@@ -122,7 +130,7 @@ def test_unwrap_error_methods():
     phase0_unwErr = phase0_unwErr + common_ref_err
     phaseSideBand_unwErr = phaseSideBand_unwErr + common_ref_err
     phaseSideBand_unwErr = phaseSideBand_unwErr + diff_ref_err
-
+    phase_diffband_unwerr = phase0_unwErr - phaseSideBand_unwErr
     # assume that ionosphere phase is correctly estimated through filtering
     com_unw_err, diff_unw_err = compute_unwrapp_error_main_side_band(
         f0=f0, f1=f1,
@@ -136,13 +144,20 @@ def test_unwrap_error_methods():
     assert difference_diffref_ms_abs < 1e-5
 
     # test for main_diff_main_side_band
-    phi_iono_md, phi_n_md = estimate_iono_main_diff(f0, f1, phase0, phaseSideBand)
+    phaseSideBand_unwErr = phaseSideBand.copy()
+    phase0_unwErr = phase0.copy()
+
+    phase0_unwErr = phase0_unwErr + common_ref_err
+    phaseSideBand_unwErr = phaseSideBand_unwErr + common_ref_err
+    phase_diffband_unwerr = phase0 - phaseSideBand + diff_ref_err
+    phi_iono_md, phi_n_md = estimate_iono_main_diff(f0, f1, phase0,
+                                                    phase0 - phaseSideBand)
 
     # assume that ionosphere phase is correctly estimated through filtering
     com_unw_err, diff_unw_err = compute_unwrapp_error_main_diff_ms_band(
         f0=f0, f1=f1,
-        disp_array=phi_iono_ms, nondisp_array=phi_n_ms,
-        main_runw=phase0_unwErr, side_runw=phaseSideBand_unwErr)
+        disp_array=phi_iono_md, nondisp_array=phi_n_md,
+        main_runw=phase0_unwErr, diff_ms_runw=phase_diffband_unwerr)
 
     difference_comref_md_abs = np.sum(np.abs(com_unw_err * 2*np.pi - common_ref_err))
     difference_diffref_md_abs = np.sum(np.abs(diff_unw_err* 2*np.pi - diff_ref_err))

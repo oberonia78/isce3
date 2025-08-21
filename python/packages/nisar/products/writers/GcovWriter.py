@@ -549,16 +549,6 @@ class GcovWriter(BaseL2WriterSingleInput):
             f'{parameters_group}/radiometricTerrainCorrectionApplied',
             'processing/geocode/apply_rtc')
 
-        # TODO: read these values from the RSLC metadata once they are
-        # available (the RSLC datasets below are not in the specs)
-        self.copy_from_input(
-            f'{parameters_group}/dryTroposphericGeolocationCorrectionApplied',
-            default=True)
-
-        self.copy_from_input(
-            f'{parameters_group}/wetTroposphericGeolocationCorrectionApplied',
-            default=False)
-
         self.copy_from_runconfig(
             f'{parameters_group}/rangeIonosphericGeolocationCorrectionApplied',
             'processing/geocode/apply_range_ionospheric_delay_correction')
@@ -813,15 +803,16 @@ class GcovWriter(BaseL2WriterSingleInput):
         Populate the `processingInformation/timingCorrections` group of the
         GCOV product
         """
-        timing_corrections_group_path = \
-            (self.output_product_path +
-             '/metadata/processingInformation/'
-             'timingCorrections')
 
         processing_information_geogrid = self.cfg['processing'][
             'processing_information']['geogrid']
 
         for frequency in self.input_freq_pols_dict.keys():
+
+            timing_corrections_group_path = \
+                (self.output_product_path +
+                 '/metadata/processingInformation/'
+                 f'timingCorrections/frequency{frequency}')
 
             if (self.timing_corrections_dict is not None and
                 frequency in
