@@ -950,6 +950,7 @@ def remove_small_components(image, min_cluster_pixels):
         raise ValueError("min_cluster_pixels cannot be negative")
 
     valid_mask = ~np.isnan(image)
+    n_valid = int(valid_mask.sum())
 
     if min_cluster_pixels == 0:
         info_channel.log("min_cluster_pixels == 0 → "
