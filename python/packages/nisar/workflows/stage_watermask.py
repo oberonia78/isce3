@@ -461,7 +461,7 @@ def parse_shortdesc_and_notes(license_path: str,
             flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
         )
         m = pat.search(text)
-        return m.group(1).strip() if m else None
+        return m.group(1).strip() if (m is not None) else None
 
     shortdesc = _grab("Short description")
     notes = _grab("Notes")
