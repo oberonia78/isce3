@@ -392,9 +392,9 @@ def download_watermask(polys, epsgs, outfile, version):
 
         if license_exists:
             try:
-                water_descr = parse_license_notes(in_license_path)
+                water_descr = parse_shortdesc_and_notes(in_license_path)
                 vrt_dataset.SetMetadataItem("water_mask_description",
-                                            f'{water_descr}')
+                                            water_descr)
 
             except Exception as e:
                 warnings.warn(
@@ -404,7 +404,7 @@ def download_watermask(polys, epsgs, outfile, version):
         else:
             warnings.warn(
                 f"No LICENSE.txt found at {in_license_path} "
-                f"(expected for WATERMASK v{version}). Proceeding without metadata."
+                f"(expected for WATERMASK v0.4+). Proceeding without metadata."
             )
     except Exception as e:
         errmsg = f'Failed to download NISAR WATERMASK {version} from s3 bucket. ' \
@@ -412,11 +412,11 @@ def download_watermask(polys, epsgs, outfile, version):
         raise ValueError(errmsg) from e
 
 
-def parse_license_notes(license_path: str,
+def parse_shortdesc_and_notes(license_path: str,
                         encoding: str = "utf-8") -> str | None:
     """
     Extract the multi-line text of the “Notes” bullet from
-    a LICENSE.txt in an S3 bucket via GDAL and returning the
+    a LICENSE.txt in an S3 bucket via GDAL and return the
     value without the leading "- Notes:" header.
 
     Parameters
@@ -436,18 +436,11 @@ def parse_license_notes(license_path: str,
     if stat is None:
         raise ValueError(f"No LICENSE.txt found at {license_path}")
 
-    MAX_SIZE = 10_000_000  # 10 MB
-
-    if stat.size and stat.size > MAX_SIZE:
-        warnings.warn(
-            f"{license_path} is {stat.size/1_000_000:.1f} MB — "
-            f"only the first {MAX_SIZE/1_000_000:.0f} MB will be parsed."
-        )
     fp = gdal.VSIFOpenL(license_path, "rb")
     if fp is None:
         raise IOError(f"Could not open {license_path} via GDAL")
     try:
-        data = gdal.VSIFReadL(1, min(stat.size, MAX_SIZE), fp)
+        data = gdal.VSIFReadL(1, stat.size, fp)
     finally:
         gdal.VSIFCloseL(fp)
 
@@ -461,16 +454,23 @@ def parse_license_notes(license_path: str,
         return None
 
     NEXT_BULLET = r"(?=^\s*-\s+[^:\n]+:\s*|\Z)"
-    NOTES_RE = re.compile(
-        rf"^\s*-\s*Notes:\s*(.*?){NEXT_BULLET}",
-        flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
 
-    m = NOTES_RE.search(text)
-    if not m:
-        warnings.warn(f'No "Notes" field found in {license_path}')
-        return None
+    def _grab(header: str) -> str | None:
+        pat = re.compile(
+            rf"^\s*-\s*{re.escape(header)}\s*:\s*(.*?){NEXT_BULLET}",
+            flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
+        )
+        m = pat.search(text)
+        return m.group(1).strip() if m else None
 
-    return m.group(1).strip()
+    shortdesc = _grab("Short description")
+    notes = _grab("Notes")
+
+    if not (shortdesc and notes):
+        raise ValueError(
+            f'Missing "Short description" or "Notes" in {license_path}')
+
+    return ' '.join([shortdesc, notes])
 
 
 def transform_polygon_coords(polys, epsgs):
