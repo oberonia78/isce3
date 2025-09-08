@@ -469,7 +469,7 @@ def compute_differential_phase(phase_first,
         if np.iscomplexobj(arr):
             return arr
         # Cast to float to avoid integer exponentiation issues
-        return np.exp(1j * arr.astype(np.float32, copy=False))
+        return np.exp(1j * arr)
 
     # Check if reading and writing will happen on the same file
     is_same_file_first_output = (phase_first == output_path)
