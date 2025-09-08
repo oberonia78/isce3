@@ -30,13 +30,21 @@ def decimate_freq_a_array(
 
     resampling_scale_factor = int(np.round(spacing_side / spacing_main))
 
-    x_cand = np.arange(1, width + 1)
-
-    # find the maximum of the multiple of resampling_scale_factor
-    decimate_width_end = np.max(x_cand[x_cand % resampling_scale_factor == 0])
+    # ensure the decimated width matches len(slant_side)
+    n_side = len(slant_side)
+    decimate_width_end = first_index + n_side * resampling_scale_factor
+    if decimate_width_end > width:
+        # shift start left so it fits; clamp to 0
+        first_index = max(0, width - n_side * resampling_scale_factor)
+        decimate_width_end = first_index + n_side * resampling_scale_factor
     decimated_array = target_runw[
         :, first_index:decimate_width_end:resampling_scale_factor]
 
+    if decimated_array.shape[1] < n_side:
+        pad_cols = n_side - decimated_array.shape[1]
+        pad = np.zeros((decimated_array.shape[0], pad_cols),
+                       dtype=decimated_array.dtype)
+        decimated_array = np.concatenate([decimated_array, pad], axis=1)
     return decimated_array
 
 def interpolate_freq_b_array(
