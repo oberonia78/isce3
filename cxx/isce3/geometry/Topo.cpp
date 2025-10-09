@@ -1,6 +1,7 @@
 #include "Topo.h"
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -179,59 +180,76 @@ topo(Raster & demRaster, TopoLayers & layers)
         // Allocate vector for storing satellite position for each line
         std::vector<Vec3> satPosition(blockLength);
 
-        // For each line in block
-        double tline;
-        for (size_t blockLine = 0; blockLine < blockLength; ++blockLine) {
+        // Get the midpoint of the DEM block in LLH coordinates.
+        // This should always be safe since the call to `computeDEMBounds()`
+        // above loads a block of the DEM raster.
+        assert(demInterp.haveRaster());
+        const auto dem_midpoint = demInterp.midLonLat();
 
-            if (blockLine % std::max((int) (blockLength / 100), 1) == 0)
-                printf("\rTopo progress (block %d/%d): %d%%",
-                       (int) block + 1, (int) nBlocks,
-                       (int) (blockLine * 1e2 / blockLength)),
-                       fflush(stdout);
+        #pragma omp parallel
+        {
+            // Thread-local count of the total number of rdr2geo calls that
+            // converged successfully.
+            size_t totalconv_thread = 0;
 
-            // Global line index
-            size_t line = lineStart + blockLine;
+            // For each line in block
+            #pragma omp for
+            for (size_t blockLine = 0; blockLine < blockLength; ++blockLine) {
+                // Global line index
+                size_t line = lineStart + blockLine;
 
-            // Initialize orbital data for this azimuth line
-            Basis TCNbasis;
-            Vec3 pos, vel;
-            _initAzimuthLine(line, tline, pos, vel, TCNbasis);
+                // Initialize orbital data for this azimuth line
+                Basis TCNbasis;
+                double tline;
+                Vec3 pos, vel;
+                _initAzimuthLine(line, tline, pos, vel, TCNbasis);
 
-            satPosition[blockLine] = pos;
+                satPosition[blockLine] = pos;
 
-            // Compute velocity magnitude
-            const double satVmag = vel.norm();
+                // Compute velocity magnitude
+                const double satVmag = vel.norm();
 
-            // For each slant range bin
-            #pragma omp parallel for reduction(+:totalconv)
-            for (size_t rbin = 0; rbin < _radarGrid.width(); ++rbin) {
+                // Initialize LLH to middle of input DEM block and average height.
+                auto llh = dem_midpoint;
 
-                // Get current slant range
-                const double rng = _radarGrid.slantRange(rbin);
+                for (size_t rbin = 0; rbin < _radarGrid.width(); ++rbin) {
 
-                // Get current Doppler value
-                const double dopfact = (0.5 * _radarGrid.wavelength()
-                                     * (_doppler.eval(tline, rng) / satVmag)) * rng;
+                    // Get current slant range
+                    const double rng = _radarGrid.slantRange(rbin);
 
-                // Store slant range bin data in Pixel
-                Pixel pixel(rng, dopfact, rbin);
+                    // Get current Doppler value
+                    const double dopfact = (0.5 * _radarGrid.wavelength()
+                                         * (_doppler.eval(tline, rng) / satVmag))
+                                         * rng;
 
-                // Initialize LLH to middle of input DEM and average height
-                Vec3 llh = demInterp.midLonLat();
+                    // Store slant range bin data in Pixel
+                    Pixel pixel(rng, dopfact, rbin);
 
-                // Perform rdr->geo iterations
-                int geostat = rdr2geo(
-                    pixel, TCNbasis, pos, vel, _ellipsoid, demInterp, llh,
-                    _radarGrid.lookSide(), _threshold, _numiter, _extraiter);
-                totalconv += geostat;
+                    // Perform rdr->geo iterations
+                    int geostat = rdr2geo(
+                        pixel, TCNbasis, pos, vel, _ellipsoid, demInterp, llh,
+                        _radarGrid.lookSide(), _threshold, _numiter, _extraiter);
+                    totalconv_thread += geostat;
 
-                // Save data in output arrays
-                _setOutputTopoLayers(llh, layers, blockLine, pixel, pos, vel,
-                        TCNbasis, demInterp);
+                    // Save data in output arrays
+                    _setOutputTopoLayers(llh, layers, blockLine, pixel, pos, vel,
+                                         TCNbasis, demInterp);
 
-            } // end OMP for loop pixels in block
-        } // end for loop lines in block
-        printf("\rTopo progress (block %d/%d): 100%%\n",
+                    // If rdr2geo failed to converge, re-initialize the LLH estimate for
+                    // the next iteration. Otherwise, reuse the current solution as the
+                    // initial guess for the next range bin.
+                    if (geostat == 0) {
+                        llh = dem_midpoint;
+                    }
+                }
+            }
+
+            // Collect the total number of converged rdr2geo calls from among all
+            // threads.
+            #pragma omp atomic
+            totalconv += totalconv_thread;
+        }
+        printf("\rTopo progress (block %d/%d): Done\n",
                (int) block + 1, (int) nBlocks), fflush(stdout);
 
         // Compute layover/shadow masks for the block
@@ -447,9 +465,9 @@ computeDEMBounds(Raster & demRaster, DEMInterpolator & demInterp, size_t lineOff
 }
 
 void isce3::geometry::Topo::
-_setOutputTopoLayers(Vec3 & targetLLH, TopoLayers & layers, size_t line,
-                     Pixel & pixel, Vec3& pos, Vec3& vel, Basis & TCNbasis,
-                     DEMInterpolator & demInterp)
+_setOutputTopoLayers(const Vec3& targetLLH, TopoLayers & layers, size_t line,
+                     const Pixel& pixel, const Vec3& pos, const Vec3& vel,
+                     const Basis& TCNbasis, const DEMInterpolator& demInterp)
 {
     const double degrees = 180.0 / M_PI;
 

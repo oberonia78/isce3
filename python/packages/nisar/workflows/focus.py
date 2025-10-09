@@ -1378,8 +1378,8 @@ def set_algorithm_metadata(cfg: Struct, slc: SLC, is_dithered: bool = False):
     rfi = cfg.processing.radio_frequency_interference
     slc.set_algorithms(
         demInterpolation=cfg.processing.dem.interp_method,
-        rfiDetection="ST-EVD" if rfi.detection_enabled else "disabled",
-        rfiMitigation="ST-EVD" if rfi.mitigation_enabled else "disabled",
+        rfiDetection=rfi.mitigation_algorithm if rfi.detection_enabled else "disabled",
+        rfiMitigation=rfi.mitigation_algorithm if rfi.mitigation_enabled else "disabled",
         elevationAntennaPatternCorrection=cfg.processing.is_enabled.eap,
         rangeSpreadingLossCorrection=cfg.processing.is_enabled.range_cor,
         azimuthPresumming="BLU" if is_dithered else "disabled")
@@ -1816,6 +1816,8 @@ def focus(runconfig, runconfig_path=""):
                 z[np.isnan(z)] = 0.0
                 if cfg.processing.zero_fill_gaps:
                     fill_gaps(z, swaths[:, pulse:pulse+nblock, :], 0.0)
+                if cfg.processing.nullify_azimuth_mean:
+                    z -= z.mean(axis=0)
                 raw_mm[block_out] = z
 
             raw_clean, rfi_likelihood = process_rfi(cfg, raw_mm, temp)
