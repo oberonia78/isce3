@@ -14,7 +14,10 @@ import snaphu
 from isce3.core import crop_external_orbit
 from isce3.io import HDF5OptimizedReader
 from isce3.unwrap.preprocess import preprocess_wrapped_igram as preprocess
-from isce3.unwrap.preprocess import project_map_to_radar
+from isce3.unwrap.preprocess import (project_map_to_radar,
+                                     interpret_subswath_mask)
+from isce3.unwrap.bridge_phase import bridge_unwrapped_phase
+
 from nisar.products.insar.product_paths import RIFGGroupsPaths
 from nisar.products.readers import SLC
 from nisar.products.readers.orbit import load_orbit_from_xml
@@ -168,6 +171,18 @@ def run(cfg: dict, input_hdf5: str, output_hdf5: str):
                         else:
                             mask = inland_water_mask | ocean_water_mask
 
+                    if "subswath_mask" in preproc_cfg["mask"]["mask_type"]:
+                        mask_path = f'{src_freq_group_path}/interferogram/mask'
+                        print(mask_path)
+                        mask_layer = src_h5[mask_path][()]
+                        reference_valid, secondary_valid, _ = \
+                            interpret_subswath_mask(mask_layer)
+                        invalid = ~reference_valid | ~secondary_valid
+                        if mask is not None:
+                            mask = mask | invalid
+                        else:
+                            mask = invalid
+
                     if filling_method == "distance_interpolator":
                         distance = \
                             preproc_cfg["distance_interpolator"]["distance"]
@@ -295,16 +310,33 @@ def run(cfg: dict, input_hdf5: str, output_hdf5: str):
                                   delete_scratch=True)
 
                     # Compute statistics (stats module supports isce3.io.Raster)
-                    unw_raster = isce3.io.Raster(unw_raster_path)
-                    compute_stats_real_data(unw_raster, unw_dataset)
+                    # unw_raster = isce3.io.Raster(unw_raster_path)
+                    # compute_stats_real_data(unw_raster, unw_dataset)
 
                 else:
                     err_str = f"{algorithm} is an invalid unwrapping algorithm"
                     error_channel.log(err_str)
 
                 # Clean up unwrapped phase raster
-                del unw_raster
-
+                # del unw_raster
+                bridge_radius = 500
+                bridge_erosion_size = 2
+                bridge_minimum_samples = 14
+                bridge_deramp_type = None
+                bridge_ramp_maximum_pixel = 1e6
+                bridge_flag = True
+                if bridge_flag:
+                    unwrapped_phase = dst_h5[unw_path][()]
+                    unwrapped_phase = bridge_unwrapped_phase(
+                        unwrapped_phase,
+                        radius=bridge_radius,
+                        min_num_pixel=bridge_minimum_samples,
+                        erosion_size=bridge_erosion_size,
+                        ramp_type=bridge_deramp_type,
+                        deramp_max_num_sample=bridge_ramp_maximum_pixel)
+                dst_h5[unw_path].write_direct(unwrapped_phase,
+                                              dest_sel=np.s_[:, :]
+                )
                 # Allocate coherence in RUNW. If no further multilooking, the coherence
                 # is copied from RIFG
                 datasets = ['coherenceMagnitude']

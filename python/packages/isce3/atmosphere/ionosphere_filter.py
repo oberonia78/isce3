@@ -154,7 +154,8 @@ class IonosphereFilter:
                     min_cluster_pixels=min_cluster_pixels)
 
                 if self.filling_method == "smoothed":
-                    fill_method = fill_with_smoothed
+                    # fill_method = fill_with_smoothed
+                    fill_method = fill_bilinear_fast
                 elif self.filling_method == "nearest":
                     fill_method = fill_nearest
                 elif self.filling_method == "distance":
@@ -178,6 +179,26 @@ class IonosphereFilter:
                     unfilt_data_block_sig = read_block_array(input_std_dev,
                                                              block_param)
                     filled_data_sig[mask1] = unfilt_data_block_sig[mask1]
+
+                output_filled = \
+                    f'{self.outputdir}/unfilled_iono_temp_{iter_cnt}'
+
+                write_array(
+                    output_filled,
+                    data_block[length_offset:length_offset+block_param.block_length,
+                                width_offset:width_offset+block_param.data_width],
+                    block_row=block_param.write_start_line,
+                    data_shape=data_shape)
+                
+                output_filled = \
+                    f'{self.outputdir}/filled_iono_temp_{iter_cnt}'
+
+                write_array(
+                    output_filled,
+                    filled_data[length_offset:length_offset+block_param.block_length,
+                                width_offset:width_offset+block_param.data_width],
+                    block_row=block_param.write_start_line,
+                    data_shape=data_shape)
 
                 # after filling gaps, filter the data
                 filt_data, filt_data_sig = filter_data_with_sig(
@@ -278,6 +299,55 @@ def fill_with_smoothed(data):
                             method='nearest')
         data_filt[np.isnan(data_filt)] = znew_ext
     return data_filt.reshape([rows, cols])
+
+
+def _interp_1d_along_axis(arr: np.ndarray, axis: int) -> np.ndarray:
+    """Fill NaNs along a given axis using 1D linear interpolation with nearest extrapolation."""
+    a = arr.copy()
+    if axis == 1:
+        # iterate rows
+        for r in range(a.shape[0]):
+            row = a[r, :]
+            nans = np.isnan(row)
+            if nans.all():
+                continue
+            x = np.arange(row.size)
+            vals = row[~nans]
+            xs = x[~nans]
+            if vals.size == 1:
+                a[r, :] = vals[0]
+                continue
+            # linear interp inside; nearest extrapolation at ends
+            row[nans] = np.interp(x[nans], xs, vals, left=vals[0], right=vals[-1])
+            a[r, :] = row
+    else:
+        # iterate cols
+        for c in range(a.shape[1]):
+            col = a[:, c]
+            nans = np.isnan(col)
+            if nans.all():
+                continue
+            x = np.arange(col.size)
+            vals = col[~nans]
+            xs = x[~nans]
+            if vals.size == 1:
+                a[:, c] = vals[0]
+                continue
+            col[nans] = np.interp(x[nans], xs, vals, left=vals[0], right=vals[-1])
+            a[:, c] = col
+    return a
+
+def fill_bilinear_fast(data: np.ndarray) -> np.ndarray:
+    """
+    Very fast NaN filler approximating bilinear by two 1D passes:
+    (1) row-wise linear, (2) column-wise linear on remaining gaps.
+    """
+    if not np.isnan(data).any():
+        return data
+    a = _interp_1d_along_axis(data, axis=1)
+    if np.isnan(a).any():
+        a = _interp_1d_along_axis(a, axis=0)
+    return a
 
 
 def filter_data_with_sig(
