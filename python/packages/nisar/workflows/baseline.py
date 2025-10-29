@@ -357,6 +357,8 @@ def compute_baseline(ref_rngs,
     # Initialize output arrays
     perp_baseline_array = np.zeros([meta_rows, meta_cols])
     par_baseline_array = np.zeros([meta_rows, meta_cols])
+    target_xyz = np.empty((meta_rows, meta_cols, 3),
+                          dtype=np.float64)
 
     for row_ind in range(meta_rows):
         for col_ind in range(meta_cols):
@@ -364,13 +366,14 @@ def compute_baseline(ref_rngs,
             ref_rng = ref_rngs[row_ind, col_ind]
             sec_azt = sec_azts[row_ind, col_ind]
             sec_rng = sec_rngs[row_ind, col_ind]
-            target_proj = np.array([coord_set[0, row_ind, col_ind],
-                                    coord_set[1, row_ind, col_ind],
-                                    coord_set[2, row_ind, col_ind]])
 
-            target_llh = proj.inverse(target_proj)
+            x = coord_set[0, row_ind, col_ind]
+            y = coord_set[1, row_ind, col_ind]
+            h = coord_set[2, row_ind, col_ind]
 
-            target_xyz = ellipsoid.lon_lat_to_xyz(target_llh)
+            lon, lat, h = proj.inverse(np.array([x, y, h]))
+            target_xyz[row_ind, col_ind, :] = ellipsoid.lon_lat_to_xyz(
+                np.array([lon, lat, h]))
 
             if not np.isnan(ref_azt):
                 ref_xyz, ref_vel = ref_orbit.interpolate(ref_azt)
@@ -378,34 +381,25 @@ def compute_baseline(ref_rngs,
                 # on the secondary orbit
                 sec_xyz, _ = sec_orbit.interpolate(sec_azt)
 
+                los_vec = target_xyz[row_ind, col_ind, :] - ref_xyz
+                los_norm = np.linalg.norm(los_vec)
+                if los_norm == 0 or not np.isfinite(los_norm):
+                    continue
+                los_unit_vec = los_vec / los_norm
+                baseline_vec = sec_xyz - ref_xyz
+
                 # compute the baseline
-                baseline = np.linalg.norm(sec_xyz - ref_xyz)
+                baseline = np.linalg.norm(baseline_vec)
+                print('baseline', baseline)
+                parallel_baseline = float(np.dot(baseline_vec, los_unit_vec))
+                perp_baseline_temp = float(
+                    np.linalg.norm(
+                        baseline_vec - parallel_baseline * los_unit_vec))
 
-                # compute the cosine of the angle between the baseline vector
-                # and the reference LOS vector (reference sensor to target)
-                if baseline == 0:
-                    cos_vbase_los = 1
-                else:
-                    cos_vbase_los = (ref_rng ** 2 + baseline ** 2
-                                     - sec_rng ** 2) / (
-                                    2.0 * ref_rng * baseline)
-
-                # project the baseline to LOS to get the parallel component
-                # of the baseline (i.e., parallel to the LOS direction)
-                # parallel baseline in reference LOS direction is positive
-                parallel_baseline = baseline * cos_vbase_los
-
-                # project the baseline to the normal to
-                # the reference LOS direction
-                perp_baseline_temp = baseline * np.sqrt(1 - cos_vbase_los ** 2)
-
-                # get the direction sign of the perpendicular baseline.
-                # positive perpendicular baseline is defined
-                # at below to LOS vector
                 direction = np.sign(
-                    np.dot(np.cross(target_xyz - ref_xyz,
-                                    sec_xyz - ref_xyz),
-                           ref_vel))
+                    np.dot(np.cross(ref_vel,
+                                    los_unit_vec),
+                           baseline_vec)) or 1.0
                 perpendicular_baseline = direction * perp_baseline_temp
 
                 perp_baseline_array[row_ind, col_ind] = perpendicular_baseline
