@@ -359,8 +359,6 @@ def compute_baseline(ref_rngs,
                                  np.nan, dtype=np.float32)
     perp_baseline_array = np.full((meta_rows, meta_cols),
                                   np.nan, dtype=np.float32)
-    target_xyz = np.empty((meta_rows, meta_cols, 3),
-                          dtype=np.float64)
 
     for row_ind in range(meta_rows):
         for col_ind in range(meta_cols):
@@ -374,7 +372,7 @@ def compute_baseline(ref_rngs,
             h = coord_set[2, row_ind, col_ind]
 
             lon, lat, h = proj.inverse(np.array([x, y, h]))
-            target_xyz[row_ind, col_ind, :] = ellipsoid.lon_lat_to_xyz(
+            target_xyz = ellipsoid.lon_lat_to_xyz(
                 np.array([lon, lat, h]))
 
             if not np.isnan(ref_azt):
@@ -382,8 +380,8 @@ def compute_baseline(ref_rngs,
                 # get the sensor position at the sec_aztime
                 # on the secondary orbit
                 sec_xyz, _ = sec_orbit.interpolate(sec_azt)
-
-                los_vec = target_xyz[row_ind, col_ind, :] - ref_xyz
+    
+                los_vec = target_xyz - ref_xyz
                 los_norm = np.linalg.norm(los_vec)
                 if los_norm == 0 or not np.isfinite(los_norm):
                     continue
