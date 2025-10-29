@@ -355,8 +355,10 @@ def compute_baseline(ref_rngs,
     meta_rows, meta_cols = ref_rngs.shape
 
     # Initialize output arrays
-    perp_baseline_array = np.zeros([meta_rows, meta_cols])
-    par_baseline_array = np.zeros([meta_rows, meta_cols])
+    par_baseline_array = np.full((meta_rows, meta_cols),
+                                 np.nan, dtype=np.float32)
+    perp_baseline_array = np.full((meta_rows, meta_cols),
+                                  np.nan, dtype=np.float32)
     target_xyz = np.empty((meta_rows, meta_cols, 3),
                           dtype=np.float64)
 
@@ -390,7 +392,6 @@ def compute_baseline(ref_rngs,
 
                 # compute the baseline
                 baseline = np.linalg.norm(baseline_vec)
-                print('baseline', baseline)
                 parallel_baseline = float(np.dot(baseline_vec, los_unit_vec))
                 perp_baseline_temp = float(
                     np.linalg.norm(
