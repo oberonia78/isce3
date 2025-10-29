@@ -388,17 +388,32 @@ def compute_baseline(ref_rngs,
                 los_unit_vec = los_vec / los_norm
                 baseline_vec = sec_xyz - ref_xyz
 
-                # compute the baseline
-                baseline = np.linalg.norm(baseline_vec)
-                parallel_baseline = float(np.dot(baseline_vec, los_unit_vec))
+                # Along track components
+                vnorm = np.linalg.norm(ref_vel)
+                if vnorm > 0 and np.isfinite(vnorm):
+                    vhat = ref_vel / vnorm
+                    baseline_along = float(np.dot(baseline_vec, vhat))
+                    baseline_vec_comp = baseline_vec - baseline_along * vhat
+                else:
+                    # Fallback if velocity is degenerate
+                    baseline_vec_comp = baseline_vec
+
+                # compute the baseline (magnitude of compensated vector; optional)
+                baseline = np.linalg.norm(baseline_vec_comp)
+
+                # Parallel (LOS) component using compensated baseline
+                parallel_baseline = float(np.dot(baseline_vec_comp,
+                                                 los_unit_vec))
+
+                # Perpendicular component magnitude using compensated baseline
                 perp_baseline_temp = float(
                     np.linalg.norm(
-                        baseline_vec - parallel_baseline * los_unit_vec))
+                        baseline_vec_comp - parallel_baseline * los_unit_vec))
 
+                # Sign using compensated baseline (right-looking positive)
                 direction = np.sign(
-                    np.dot(np.cross(ref_vel,
-                                    los_unit_vec),
-                           baseline_vec)) or 1.0
+                    np.dot(np.cross(ref_vel, los_unit_vec),
+                           baseline_vec_comp)) or 1.0
                 perpendicular_baseline = direction * perp_baseline_temp
 
                 perp_baseline_array[row_ind, col_ind] = perpendicular_baseline
@@ -406,6 +421,7 @@ def compute_baseline(ref_rngs,
             else:
                 perp_baseline_array[row_ind, col_ind] = np.nan
                 par_baseline_array[row_ind, col_ind] = np.nan
+
 
     return par_baseline_array, perp_baseline_array
 
