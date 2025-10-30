@@ -390,7 +390,7 @@ def compute_baseline(ref_rngs,
             vnorm = np.linalg.norm(ref_vel)
             if vnorm > 0 and np.isfinite(vnorm):
                 vhat = ref_vel / vnorm
-                baseline_along = float(np.dot(baseline_vec, vhat))
+                baseline_along = np.dot(baseline_vec, vhat)
                 baseline_vec_comp = baseline_vec - baseline_along * vhat
             else:
                 # Fallback if velocity is degenerate
@@ -403,13 +403,12 @@ def compute_baseline(ref_rngs,
             baseline = np.linalg.norm(baseline_vec_comp)
 
             # Parallel (LOS) component using compensated baseline
-            parallel_baseline = float(np.dot(baseline_vec_comp,
-                                             los_unit_vec))
+            parallel_baseline = np.dot(baseline_vec_comp,
+                                       los_unit_vec)
 
             # Perpendicular component magnitude using compensated baseline
-            perp_baseline_temp = float(
-                np.linalg.norm(
-                    baseline_vec_comp - parallel_baseline * los_unit_vec))
+            perp_baseline_temp = np.linalg.norm(
+                    baseline_vec_comp - parallel_baseline * los_unit_vec)
 
             # Sign using compensated baseline (right-looking positive)
             direction = np.sign(
