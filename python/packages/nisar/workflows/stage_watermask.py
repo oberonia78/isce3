@@ -152,7 +152,7 @@ def adjust_lat_lon_coordinates(x_min, y_min, x_max, y_max, vrt_filename):
     y_max: float
         Adjusted maximum Y coordinate of the bbox
     """
-    # the original COPERNICUS Water Mask and consequently the COPERNICUS Water Mask for NISAR
+    # the original Water Mask and consequently the Water Mask for NISAR
     # has a coverage of -180.0001388888889 to 179.9998611111111 in longitude
     # and a coverage of -89.99986111111112 to 90.00013888888888 in latitude.
     # This non-integer coverage makes it difficult to check if the Water Mask covers
@@ -390,11 +390,11 @@ def translate_watermask(vrt_filename, outpath, x_min, x_max, y_min, y_max, epsg)
     input_x_min, xres, _, input_y_max, _, yres = ds.GetGeoTransform()
 
     # Declare lambda function to snap min/max X and Y
-    # coordinates over the DEM grid
+    # coordinates over the water grid
     snap_coord = lambda val, snap, offset, round_func: round_func(  # noqa: E731
         float(val - offset) / snap) * snap + offset
 
-    # Snap edge coordinates using the DEM pixel spacing
+    # Snap edge coordinates using the raster pixel spacing
     # and starting coordinates. Max values are rounded
     # using np.ceil and min values are rounded with np.floor
     x_min = snap_coord(x_min, xres, input_x_min, np.floor)
