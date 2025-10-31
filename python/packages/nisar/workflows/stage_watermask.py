@@ -603,7 +603,7 @@ def watermask_covers_bbox_polar_stereo(vrt_filename, x_min, x_max, y_min, y_max,
 
     # If epsg in [3031, 3413] we need an extra check
     # to make sure the bbox is in valid region of the Water Mask
-    # The copernicus Water Mask for NISAR projected to 3031
+    # The Water Mask for NISAR projected to 3031
     # and 3413 are latitude based and therefore the
     # Water Masks in these EPSGs are valid within a circle
     # above latitude 60 N for 3413 (Polar Stereo)  and
