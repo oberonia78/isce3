@@ -30,16 +30,17 @@ def decimate_freq_a_array(
     spacing_side = slant_side[1] - slant_side[0]
 
     # make sure stride is at least 1
-    resampling_scale_factor = max(1,
-                                  int(np.round(spacing_side / spacing_main)))
+    resampling_scale_factor = max(
+        1, int(np.round(spacing_side / spacing_main))
+    )
 
     n_side = len(slant_side)
 
     # slice whatever overlaps (no shifting); then pad left/right as needed
     end_excl = min(width, first_index + n_side * resampling_scale_factor)
-    decimated_array = target_runw[:,
-                                  first_index:end_excl:resampling_scale_factor]
-
+    decimated_array = target_runw[
+        :, first_index:end_excl:resampling_scale_factor
+    ]
     # how many side samples fall outside main on each side?
     # (assumes increasing slant arrays)
     left_missing = int(
