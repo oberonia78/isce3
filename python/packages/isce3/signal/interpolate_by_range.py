@@ -59,19 +59,13 @@ def decimate_freq_a_array(
     left_missing = min(left_missing, total_missing)
     right_missing = min(right_missing, total_missing - left_missing)
 
-    if left_missing > 0:
-        pad_left = np.zeros(
-            (decimated_array.shape[0], left_missing),
-            dtype=decimated_array.dtype
+    if left_missing > 0 or right_missing > 0:
+        decimated_array = np.pad(
+            decimated_array,
+            pad_width=((0, 0), (left_missing, right_missing)),
+            mode="constant",
+            constant_values=0,
         )
-        decimated_array = np.concatenate([pad_left, decimated_array], axis=1)
-
-    if right_missing > 0:
-        pad_right = np.zeros(
-            (decimated_array.shape[0], right_missing),
-            dtype=decimated_array.dtype
-        )
-        decimated_array = np.concatenate([decimated_array, pad_right], axis=1)
 
     return decimated_array
 

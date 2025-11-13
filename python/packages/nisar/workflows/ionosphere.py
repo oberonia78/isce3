@@ -168,7 +168,7 @@ def decimate_freq_a_offset(iono_insar_cfg, original_dict):
         resample_type = 'coarse'
     decimated_offset_dir = offsets_dir
 
-    # Instantiate a RSLC object to get slant range for frequency A and B
+    # Instantiate a RSLC Swath object to get slant range for frequency A and B
     slc_swath_obj_freqa = isce3.product.Swath(ref_slc_path, 'A')
     slc_swath_obj_freqb = isce3.product.Swath(ref_slc_path, 'B')
 
