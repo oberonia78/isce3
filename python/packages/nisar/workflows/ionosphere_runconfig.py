@@ -53,7 +53,9 @@ def _cfg_freq_pol_check(cfg, freq):
     """
     freq = freq.upper()
     error_channel = \
-        journal.error('ionosphere_runconfig._cfg_freq_pol_check')
+        journal.error("ionosphere_runconfig._cfg_freq_pol_check")
+    warn_channel = \
+        journal.warning("ionosphere_runconfig._cfg_freq_pol_check")
 
     # available polarizations in frequency A of reference SLC
     ref_slc_path = cfg['input_file_group']['reference_rslc_file']
@@ -64,12 +66,22 @@ def _cfg_freq_pol_check(cfg, freq):
     h5_sec_pols = _get_rslc_h5_freq_pols(sec_slc_path, freq)
 
     # check if both ref and sec that freq + pols exist
-    fails = []
-    for refsec, pols_freq in zip(['reference', 'secondary'],
-                                 [h5_ref_pols, h5_sec_pols]):
-        if not pols_freq:
-            fails.append(refsec)
+    # Old: Check both reference and secondary have both required
+    # polarization
+    # New: Same as before for A, it is allowed that one of SLC miss
+    # side band even though it is required because 80 MHz will be bandpassed.
 
+    fails = []
+    if freq == 'A':
+        for refsec, pols_freq in zip(['reference', 'secondary'],
+                                     [h5_ref_pols, h5_sec_pols]):
+            if not pols_freq:
+                fails.append(refsec)
+    elif freq == 'B':
+        if not h5_ref_pols and not h5_sec_pols:
+            err_str = 'Reference and Secondary SLC HDF5(s) do not contain frequency {freq}'
+            error_channel.log(err_str)
+            raise LookupError(err_str)
     if fails:
         err_str = f' SLC HDF5(s) missing frequency {freq}'
         err_str = ', '.join(fails) + err_str
@@ -77,15 +89,38 @@ def _cfg_freq_pol_check(cfg, freq):
         raise LookupError(err_str)
 
     # get common polarizations of freq from reference and secondary
-    h5_common_pols = set.intersection(set(h5_ref_pols), set(h5_sec_pols))
+    set_ref = set(h5_ref_pols) if h5_ref_pols else set()
+    set_sec = set(h5_sec_pols) if h5_sec_pols else set()
+    h5_common_pols = set_ref.intersection(set_sec)
 
     # If no common frequency A polarizations found between reference and
     # secondary HDF5s, then raise exception.
-    if not h5_common_pols:
-        err_str = "No common polarization between reference and secondary"\
-            f" frequency {freq} rasters"
-        error_channel.log(err_str)
-        raise ValueError(err_str)
+    if freq == 'A':
+        if not h5_common_pols:
+            err_str = "No common polarization between reference and secondary"\
+                f" frequency {freq} rasters"
+            error_channel.log(err_str)
+            raise ValueError(err_str)
+    elif freq == 'B':
+        if not h5_common_pols:
+            if set_ref and not set_sec:
+                # Only reference has freq B → use reference pols
+                warn_str = (f"WARNING: Secondary SLC does not contain frequency {freq}. "
+                            f"Using reference SLC polarizations {sorted(set_ref)} for frequency {freq}.")
+                warn_channel.log(warn_str)  # or warn_channel.log(warn_str)
+                h5_common_pols = set_ref
+            elif set_sec and not set_ref:
+                # Only secondary has freq B → use secondary pols
+                warn_str = (f"WARNING: Reference SLC does not contain frequency {freq}. "
+                            f"Using secondary SLC polarizations {sorted(set_sec)} for frequency {freq}.")
+                warn_channel.log(warn_str)  # or warn_channel.log(warn_str)
+                h5_common_pols = set_sec
+            elif set_sec and not set_ref:
+                # Only secondary has freq B → use secondary pols
+                warn_str = (f"WARNING: Reference SLC does not contain frequency {freq}. "
+                            f"Using secondary SLC polarizations {sorted(set_sec)} for frequency {freq}.")
+                warn_channel.log(warn_str)  # or warn_channel.log(warn_str)
+                h5_common_pols = set_sec
 
     # If polarizations are given in iono config, then check if HDF5 has them.
     iono_cfg = cfg['processing']['ionosphere_phase_correction']
@@ -100,22 +135,43 @@ def _cfg_freq_pol_check(cfg, freq):
 
         # container to store which errors occurred
         fails = []
+        if freq == 'A':
+            # iterate reference and secondary polarizations from h5 for given
+            # frequency
+            for refsec, pols_freq in zip(['reference', 'secondary'],
+                                         [h5_ref_pols, h5_sec_pols]):
+                # check for intersection in polarizations
+                if not set_iono_cfg_freq_pol.intersection(set(pols_freq)):
+                    fails.append(refsec)
 
-        # iterate reference and secondary polarizations from h5 for given
-        # frequency
-        for refsec, pols_freq in zip(['reference', 'secondary'],
-                                     [h5_ref_pols, h5_sec_pols]):
-            # check for intersection in polarizations
-            if not set_iono_cfg_freq_pol.intersection(set(pols_freq)):
-                fails.append(refsec)
+            # raise error if any non-intersection found
+            if fails:
+                err_str = ' SLC HDF5(s) polarizations do not intersect with'\
+                    ' polarizations in ionosphere configuration'
+                err_str = f'Frequency {freq}' + ', '.join(fails) + err_str
+                error_channel.log(err_str)
+                raise LookupError(err_str)
+        elif freq == 'B':
+            # RELAXED: at least one side must have at least one requested pol
+            ref_match = set_iono_cfg_freq_pol.intersection(set_ref)
+            sec_match = set_iono_cfg_freq_pol.intersection(set_sec)
 
-        # raise error if any non-intersection found
-        if fails:
-            err_str = ' SLC HDF5(s) polarizations do not intersect with'\
-                ' polarizations in ionosphere configuration'
-            err_str = f'Frequency {freq}' + ', '.join(fails) + err_str
-            error_channel.log(err_str)
-            raise LookupError(err_str)
+            if not ref_match and not sec_match:
+                # Nothing in either SLC matches config → error
+                err_str = (f"Frequency {freq}: requested polarizations "
+                           f"{sorted(set_iono_cfg_freq_pol)} do not exist in "
+                           "reference or secondary SLC HDF5(s).")
+                error_channel.log(err_str)
+                raise LookupError(err_str)
+
+            # Prefer common subset if any, else take union of matches
+            if h5_common_pols:
+                iono_cfg_freq_pol = list(
+                    h5_common_pols.intersection(set_iono_cfg_freq_pol)
+                ) or list(ref_match or sec_match)
+            else:
+                iono_cfg_freq_pol = list(ref_match.union(sec_match))
+
     # If iono config polarizations not given
     else:
         '''
@@ -133,18 +189,37 @@ def _cfg_freq_pol_check(cfg, freq):
         # find common copols in h5 and frequency A iono config
         cfg_freq_pols = cfg['processing']['input_subset'][
             'list_of_frequencies']
-        h5_iono_cfg_common_copol_ref_sec = set.intersection(
-            set(h5_common_copol_ref_sec), set(cfg_freq_pols['A']))
+        if freq == 'A':
+            # Frequency A: same as your original logic
+            h5_iono_cfg_common_copol_ref_sec = set.intersection(
+                set(h5_common_copol_ref_sec), set(cfg_freq_pols['A']))
 
-        # use common copols in h5 and frequency A iono config if any found
-        if h5_iono_cfg_common_copol_ref_sec:
-            iono_cfg_freq_pol = list(h5_iono_cfg_common_copol_ref_sec)
-        # use h5 common copols
-        elif h5_common_copol_ref_sec:
-            iono_cfg_freq_pol = list(h5_common_copol_ref_sec)
-        # use h5 common crosspols
-        else:
-            iono_cfg_freq_pol = list(h5_common_pols)
+            if h5_iono_cfg_common_copol_ref_sec:
+                iono_cfg_freq_pol = list(h5_iono_cfg_common_copol_ref_sec)
+            elif h5_common_copol_ref_sec:
+                iono_cfg_freq_pol = list(h5_common_copol_ref_sec)
+            else:
+                iono_cfg_freq_pol = list(h5_common_pols)
+
+        elif freq == 'B':
+            # Frequency B: allow asymmetry, fall back gracefully
+            # For B, there may be only ref OR only sec; h5_common_pols was
+            # already set above to some reasonable choice.
+            h5_common_copol_ref_sec = h5_common_pols.intersection(set_copol)
+
+            if 'B' in cfg_freq_pols:
+                h5_iono_cfg_common_copol_ref_sec = set.intersection(
+                    set(h5_common_copol_ref_sec), set(cfg_freq_pols['A']))
+            else:
+                h5_iono_cfg_common_copol_ref_sec = set()
+
+            if h5_iono_cfg_common_copol_ref_sec:
+                iono_cfg_freq_pol = list(h5_iono_cfg_common_copol_ref_sec)
+            elif h5_common_copol_ref_sec:
+                iono_cfg_freq_pol = list(h5_common_copol_ref_sec)
+            else:
+                iono_cfg_freq_pol = list(h5_common_pols)
+
     cfg['processing']['ionosphere_phase_correction'][
             'list_of_frequencies'][freq] = iono_cfg_freq_pol
 

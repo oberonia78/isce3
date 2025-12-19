@@ -63,7 +63,7 @@ def check_range_bandwidth_overlap(ref_slc, sec_slc, pols):
 
     If the two SLCs differ in center frequency or bandwidth, then
     one SLC shall be bandpassed to a common frequency band. If
-    necessary, determine which SLC will be bandpassed
+    necessary, determine which SLC will be bandpassed.
 
     Parameters
     ----------
@@ -80,23 +80,146 @@ def check_range_bandwidth_overlap(ref_slc, sec_slc, pols):
         Dict mapping frequency band (e.g. "A" or "B") to
         SLC to be bandpassed ("ref" or "sec").
     """
-    mode = dict()
+    mode = {}
+
+    # Optional: use journal instead of print if you prefer
+    info_channel = journal.info("bandpass_insar.check_range_bandwidth_overlap")
+
+    ref_freq_pols_set = ref_slc.polarizations
+    sec_freq_pols_set = sec_slc.polarizations
 
     for freq, pol_list in pols.items():
-        ref_meta_data = BandpassMetaData.load_from_slc(ref_slc, freq)
-        sec_meta_data = BandpassMetaData.load_from_slc(sec_slc, freq)
+        if not pol_list:
+            # Nothing requested for this frequency
+            continue
+        if freq == 'B' and 'B' not in ref_freq_pols_set:
+            target_ref_freq = 'A'
+        else:
+            target_ref_freq = freq
+
+        if freq == 'B' and 'B' not in sec_freq_pols_set:
+            target_sec_freq = 'A'
+        else:
+            target_sec_freq = freq
+        ref_freq_pols = ref_freq_pols_set[target_ref_freq]
+        sec_freq_pols = sec_freq_pols_set[target_sec_freq]
+
+        set_req = set(pol_list)
+        set_ref = set(ref_freq_pols or [])
+        set_sec = set(sec_freq_pols or [])
+
+        has_ref = bool(set_req & set_ref)
+        has_sec = bool(set_req & set_sec)
+
+        # If neither SLC has any of the requested pols for this freq,
+        # we simply skip this frequency.
+        if not has_ref and not has_sec:
+            info_channel.log(
+                f"Frequency {freq}: none of the requested polarizations "
+                f"{sorted(set_req)} are present in reference or secondary SLC. "
+                "Skipping this frequency for bandpass check."
+            )
+            continue
+
+        # If only one SLC has the requested pols, we *still* allow
+        # metadata check, but we must be careful: if the other SLC
+        # actually does not contain this frequency at all,
+        # BandpassMetaData.load_from_slc may fail. In many NISAR cases,
+        # presence/absence of pols implies presence/absence of that freq.
+        if not has_ref:
+            info_channel.log(
+                f"Frequency {freq}: requested polarizations "
+                f"{sorted(set_req)} not found in reference SLC. "
+                "Skipping this frequency for bandpass check."
+            )
+            continue
+
+        if not has_sec:
+            info_channel.log(
+                f"Frequency {freq}: requested polarizations "
+                f"{sorted(set_req)} not found in secondary SLC. "
+                "Skipping this frequency for bandpass check."
+            )
+            continue
+
+        # Now safe to load metadata for this frequency on both SLCs
+        ref_meta_data = BandpassMetaData.load_from_slc(ref_slc, target_ref_freq)
+        sec_meta_data = BandpassMetaData.load_from_slc(sec_slc, target_sec_freq)
 
         ref_wvl = ref_meta_data.wavelength
         sec_wvl = sec_meta_data.wavelength
         ref_bw = ref_meta_data.rg_bandwidth
         sec_bw = sec_meta_data.rg_bandwidth
 
-        # check if two SLCs have same bandwidth and center frequency
-        if (ref_wvl != sec_wvl) or (ref_bw != sec_bw):
+        # Use center frequency + bandwidth to check coverage
+        ref_center = ref_meta_data.center_freq
+        sec_center = sec_meta_data.center_freq
+
+        # Frequency edges
+        ref_low = ref_center - 0.5 * ref_bw
+        ref_high = ref_center + 0.5 * ref_bw
+        sec_low = sec_center - 0.5 * sec_bw
+        sec_high = sec_center + 0.5 * sec_bw
+
+        # Decide if bandpass is needed and possible
+        # If both wavelength and bandwidth are identical, no bandpass needed.
+        if (ref_wvl == sec_wvl) and (ref_bw == sec_bw) and (ref_center == sec_center):
+            info_channel.log(
+                f"Frequency {freq}: reference and secondary have the same "
+                "wavelength, center frequency, and bandwidth. No bandpass."
+            )
+            continue
+
+        # Otherwise, we require that one band fully covers the other.
+        # Narrower band = base; wider band = target to be bandpassed.
+        # Case 1: secondary band is fully inside reference band
+        if (sec_low >= ref_low) and (sec_high <= ref_high):
+            # Reference is wider (or equal) and can be bandpassed to match secondary
+            # BUT we need to check which is actually wider in BW sense
             if ref_bw > sec_bw:
                 mode[freq] = 'ref'
+                info_channel.log(
+                    f"Frequency {freq}: reference bandwidth is wider and fully "
+                    "covers secondary. Bandpass reference to match secondary."
+                )
             else:
+                # If sec_bw >= ref_bw but sec band is inside ref band, then
+                # they are essentially equal or something is odd; be conservative:
                 mode[freq] = 'sec'
+                info_channel.log(
+                    f"Frequency {freq}: secondary band is fully inside reference, "
+                    "but bandwidths do not follow the expected wider/narrower "
+                    "pattern. Bandpass secondary to match reference."
+                )
+
+        # Case 2: reference band is fully inside secondary band
+        elif (ref_low >= sec_low) and (ref_high <= sec_high):
+            if sec_bw > ref_bw:
+                mode[freq] = 'sec'
+                info_channel.log(
+                    f"Frequency {freq}: secondary bandwidth is wider and fully "
+                    "covers reference. Bandpass secondary to match reference."
+                )
+            else:
+                mode[freq] = 'ref'
+                info_channel.log(
+                    f"Frequency {freq}: reference band is fully inside secondary, "
+                    "but bandwidths do not follow the expected wider/narrower "
+                    "pattern. Bandpass reference to match secondary."
+                )
+
+        else:
+            # Neither band fully covers the other → cannot safely define a common band
+            err_str = (
+                f"Frequency {freq}: reference and secondary bands do not fully "
+                "overlap in frequency space. "
+                f"ref: center={ref_center}, bw={ref_bw}, edges=({ref_low}, {ref_high}); "
+                f"sec: center={sec_center}, bw={sec_bw}, edges=({sec_low}, {sec_high}). "
+                "Cannot determine a common band that is a subset of one SLC."
+            )
+            info_channel.log(err_str)
+            raise ValueError(err_str)
+
     return mode
 
 
