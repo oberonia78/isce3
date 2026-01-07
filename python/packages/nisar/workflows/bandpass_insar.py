@@ -253,12 +253,13 @@ def run(cfg: dict):
 
         for target_freq in target_freq_pol.keys():
             for target_pol in target_freq_pol[target_freq]:
-                if target_pol not in freq_pols_bp[target_freq]:
-                    delete_pol_path = (
-                        f"{swath_path}/frequency{target_freq}/{target_pol}"
-                    )
-                    if delete_pol_path in dst_h5:
-                        del dst_h5[delete_pol_path]
+                if target_freq in freq_pols_bp.keys():
+                    if target_pol not in freq_pols_bp[target_freq]:
+                        delete_pol_path = (
+                            f"{swath_path}/frequency{target_freq}/{target_pol}"
+                        )
+                        if delete_pol_path in dst_h5:
+                            del dst_h5[delete_pol_path]
         new_frequencylist = bandpass_modes.keys()
         update_list_of_frequencies(target_output, new_frequencylist)
 

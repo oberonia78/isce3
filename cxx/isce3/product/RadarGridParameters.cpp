@@ -1,6 +1,7 @@
 #include "RadarGridParameters.h"
 
 #include "RadarGridProduct.h"
+#include <iomanip>   // <-- Add this
 
 isce3::product::RadarGridParameters::
 RadarGridParameters(const RadarGridProduct & product, char frequency) :
@@ -21,6 +22,26 @@ RadarGridParameters(const Swath & swath, isce3::core::LookSide lookSide) :
     _rwidth(swath.samples()),
     _refEpoch(swath.refEpoch())
 {
+    // ---- Add debug prints BEFORE validate() ----
+    std::cout << std::setprecision(16) << std::fixed;
+
+    std::cout << "\n[DEBUG RadarGridParameters CTOR]\n";
+    std::cout << "  lookSide          = " << static_cast<int>(_lookSide) << "\n";
+    std::cout << "  sensingStart      = " << _sensingStart << "\n";
+    std::cout << "  startingRange     = " << _startingRange << "\n";
+    std::cout << "  wavelength        = " << _wavelength << "\n";
+    std::cout << "  prf               = " << _prf << "\n";
+    std::cout << "  rangePixelSpacing = " << _rangePixelSpacing << "\n";
+    std::cout << "  rlength (lines)   = " << _rlength << "\n";
+    std::cout << "  rwidth  (samples) = " << _rwidth  << "\n";
+    std::cout << "  refEpoch          = " << _refEpoch << "\n";
+
+    // Show derived quantities too
+    std::cout << "  sensingStop()     = " << sensingStop() << "\n";
+    std::cout << "  endingRange()     = " << endingRange() << "\n";
+    std::cout << "--------------------------------------\n";
+
+    // ---- Now call validate() ----
     validate();
 }
 
