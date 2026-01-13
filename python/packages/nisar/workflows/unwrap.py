@@ -174,8 +174,8 @@ def run(cfg: dict, input_hdf5: str, output_hdf5: str):
                             mask = inland_water_mask | ocean_water_mask
 
                     if "subswath_mask" in preproc_cfg["mask"]["mask_type"]:
-                        mask_path = f'{src_freq_group_path}/interferogram/mask'
-                        mask_layer = src_h5[mask_path][()]
+                        mask_path = f'{dst_freq_group_path}/interferogram/mask'
+                        mask_layer = dst_h5[mask_path][()]
                         reference_valid, secondary_valid, _ = \
                             interpret_subswath_mask(mask_layer)
                         invalid = ~reference_valid | ~secondary_valid
