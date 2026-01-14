@@ -15,12 +15,12 @@ from isce3.core import crop_external_orbit
 from isce3.io import HDF5OptimizedReader
 from isce3.unwrap.bridge_phase import bridge_unwrapped_phase
 from isce3.unwrap.preprocess import preprocess_wrapped_igram as preprocess
-from isce3.unwrap.preprocess import (project_map_to_radar,
-                                     interpret_subswath_mask)
+from isce3.unwrap.preprocess import project_map_to_radar
 
 from nisar.products.insar.product_paths import RIFGGroupsPaths
 from nisar.products.readers import SLC
 from nisar.products.readers.orbit import load_orbit_from_xml
+from nisar.products.utils import interpret_subswath_mask
 from nisar.workflows import crossmul, prepare_insar_hdf5
 from nisar.workflows.compute_stats import (compute_stats_real_data,
                                            compute_stats_real_hdf5_dataset)
