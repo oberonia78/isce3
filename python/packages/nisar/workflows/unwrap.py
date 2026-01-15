@@ -331,7 +331,7 @@ def run(cfg: dict, input_hdf5: str, output_hdf5: str):
                         ramp_type=bridge_cfg['bridge_ramp_type'],
                         deramp_max_num_sample=bridge_cfg[
                             'bridge_ramp_maximum_pixel'])
-                dst_h5[unw_path][:, :] = unwrapped_phase
+                    dst_h5[unw_path][:, :] = unwrapped_phase
 
                 # Allocate coherence in RUNW. If no further multilooking, the coherence
                 # is copied from RIFG
