@@ -475,12 +475,12 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
         if (main_coh is not None) & (side_coh is not None):
             sig_phi_main = np.divide(
                 np.sqrt(1 - main_coh**2),
-                main_coh / np.sqrt(2 * number_looks),
+                main_coh * np.sqrt(2 * number_looks),
                 out=np.zeros_like(main_coh),
                 where=main_coh != 0)
             sig_phi_side = np.divide(
                 np.sqrt(1 - side_coh**2),
-                side_coh / np.sqrt(2 * number_looks),
+                side_coh * np.sqrt(2 * number_looks),
                 out=np.zeros_like(side_coh),
                 where=side_coh != 0)
 
@@ -491,37 +491,6 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
 
         return sig_phi_iono, sig_nondisp
 
-    def estimate_sigma_main_diff(
-            self,
-            sig_phi0,
-            sig_phi1):
-        """Estimate sigma from coherence for main_diff_ms method
-
-        Parameters
-        ----------
-        sig_phi0 : numpy.ndarray
-            phase standard deviation of main-band interferogram
-        sig_phi1 : numpy.ndarray
-            phase standard deviation of side-band interferogram
-
-        Returns
-        -------
-        sig_iono : numpy.ndarray
-            2D array of phase standard deviation of dispersive
-        sig_nondisp : numpy.ndarray
-            2D array of phase standard deviation of non-dispersive
-        """
-
-        a = self.f1 / (self.f1 + self.f0)
-        b = (self.f0 * self.f1) / (self.f0**2 - self.f1**2)
-        sig_phi01 = np.sqrt(sig_phi0**2 + sig_phi1**2)
-        sig_iono = np.sqrt(a**2 * sig_phi0**2 + b**2 * sig_phi01**2)
-
-        c = self.f0**2 / (self.f0**2 - self.f1**2)
-        d = self.f0 * self.f1 / (self.f0**2 - self.f1**2)
-        sig_nondisp = np.sqrt(c**2 * sig_phi0**2 + d**2 * sig_phi01**2)
-
-        return sig_iono, sig_nondisp
 
     def estimate_sigma_main_side(
             self,
@@ -669,7 +638,7 @@ class MainDiffMsBandIonosphereEstimation(MainBandIonosphereEstimation):
                          high_center_freq, method)
 
         self.estimate_iono = estimate_iono_main_diff
-        self.estimate_sigma = self.estimate_sigma_main_diff
+        self.estimate_sigma = self.estimate_sigma_main_side
         self.compute_unwrap_err = compute_unwrapp_error_main_diff_ms_band
 
 

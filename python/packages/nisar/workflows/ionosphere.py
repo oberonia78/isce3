@@ -1191,7 +1191,7 @@ def run(cfg: dict, runw_hdf5: str):
             # set paths for HDF5 that have frequency B unwrapped phase
             if pol_b in residual_pol_b:
                 runw_freq_b_str = os.path.join(iono_path,
-                                               iono_method,
+                                               'diff_ms',
                                                'RUNW.h5')
             else:
                 runw_freq_b_str = runw_path_insar
