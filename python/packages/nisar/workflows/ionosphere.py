@@ -1191,7 +1191,7 @@ def run(cfg: dict, runw_hdf5: str):
             # set paths for HDF5 that have frequency B unwrapped phase
             if pol_b in residual_pol_b:
                 runw_freq_b_str = os.path.join(iono_path,
-                                               'diff_ms',
+                                               iono_method,
                                                'RUNW.h5')
             else:
                 runw_freq_b_str = runw_path_insar
@@ -1416,7 +1416,7 @@ def run(cfg: dict, runw_hdf5: str):
                                 np.s_[
                                     row_start:row_start + block_rows_data,
                                     :])
-                            src_high_h5[rcom_path_freq_a].read_direct(
+                            src_diff_h5[rcom_path_freq_a].read_direct(
                                 diff_subband_conn_image,
                                 np.s_[
                                     row_start:row_start + block_rows_data,
@@ -1446,9 +1446,10 @@ def run(cfg: dict, runw_hdf5: str):
                     side_conn_image = np.empty(
                         [block_rows_data, cols_side],
                         dtype=float)
-                    diff_ms_conn_image = np.empty(
-                        [block_rows_data, cols_side],
-                        dtype=float)
+                    if iono_method == 'main_diff_ms_band':
+                        diff_ms_conn_image = np.empty(
+                            [block_rows_data, cols_side],
+                            dtype=float)
 
                 if "subswath_mask" in mask_type:
                     subswath_mask_main_image = np.empty(
@@ -1525,7 +1526,7 @@ def run(cfg: dict, runw_hdf5: str):
                                     :]
                                     )
                             if "connected_components" in mask_type:
-                                src_side_h5[rcom_path_freq_b].read_direct(
+                                src_diff_h5[rcom_path_freq_b].read_direct(
                                     diff_ms_conn_image,
                                     np.s_[row_start:row_start + block_rows_data, :])
 
@@ -1537,13 +1538,23 @@ def run(cfg: dict, runw_hdf5: str):
                         erosion_size=bridge_erosion_size,
                         ramp_type=bridge_deramp_type,
                         deramp_max_num_sample=bridge_ramp_maximum_pixel)
-                    side_image = bridge_unwrapped_phase(
-                        side_image,
-                        radius=bridge_radius,
-                        min_num_pixel=bridge_minimum_samples,
-                        erosion_size=bridge_erosion_size,
-                        ramp_type=bridge_deramp_type,
-                        deramp_max_num_sample=bridge_ramp_maximum_pixel)
+
+                    if iono_method == 'main_side_band':
+                        side_image = bridge_unwrapped_phase(
+                            side_image,
+                            radius=bridge_radius,
+                            min_num_pixel=bridge_minimum_samples,
+                            erosion_size=bridge_erosion_size,
+                            ramp_type=bridge_deramp_type,
+                            deramp_max_num_sample=bridge_ramp_maximum_pixel)
+                    elif iono_method == 'main_diff_ms_band':
+                        diff_ms_image = bridge_unwrapped_phase(
+                            diff_ms_image,
+                            radius=bridge_radius,
+                            min_num_pixel=bridge_minimum_samples,
+                            erosion_size=bridge_erosion_size,
+                            ramp_type=bridge_deramp_type,
+                            deramp_max_num_sample=bridge_ramp_maximum_pixel)
 
                 if unwrap_correction_bool:
                     main_image = unwrapping_correction_with_filter(
@@ -1554,14 +1565,25 @@ def run(cfg: dict, runw_hdf5: str):
                         sig_kernel_y=kernel_sigma_azimuth,
                         iterations=filter_iterations,
                         filter_method='convolution')
-                    side_image = unwrapping_correction_with_filter(
-                        side_image,
-                        kernel_width=kernel_range_size,
-                        kernel_length=kernel_azimuth_size,
-                        sig_kernel_x=kernel_sigma_range,
-                        sig_kernel_y=kernel_sigma_azimuth,
-                        iterations=filter_iterations,
-                        filter_method='convolution')
+
+                    if iono_method == 'main_side_band':
+                        side_image = unwrapping_correction_with_filter(
+                            side_image,
+                            kernel_width=kernel_range_size,
+                            kernel_length=kernel_azimuth_size,
+                            sig_kernel_x=kernel_sigma_range,
+                            sig_kernel_y=kernel_sigma_azimuth,
+                            iterations=filter_iterations,
+                            filter_method='convolution')
+                    elif iono_method == 'main_diff_ms_band':
+                        diff_ms_image = unwrapping_correction_with_filter(
+                            diff_ms_image,
+                            kernel_width=kernel_range_size,
+                            kernel_length=kernel_azimuth_size,
+                            sig_kernel_x=kernel_sigma_range,
+                            sig_kernel_y=kernel_sigma_azimuth,
+                            iterations=filter_iterations,
+                            filter_method='convolution')
 
             # Estimate dispersive and non-dispersive phase
             dispersive, non_dispersive = iono_phase_obj.compute_disp_nondisp(
@@ -1611,6 +1633,7 @@ def run(cfg: dict, runw_hdf5: str):
             iono_std, nondisp_std = iono_phase_obj.estimate_iono_std(
                 main_coh=main_coh_image,
                 side_coh=side_coh_image,
+                diff_ms_coh=diff_ms_coh_image,
                 low_band_coh=sub_low_coh_image,
                 high_band_coh=sub_high_coh_image,
                 diff_low_high_coh=diff_coh_image,
@@ -1701,14 +1724,14 @@ def run(cfg: dict, runw_hdf5: str):
                     mask_array = mask_array & mask_image
 
                 if "subswath_mask" in mask_type:
-                    mask_array = iono_phase_obj.get_subswath_mask_array(
+                    mask_subswath = iono_phase_obj.get_subswath_mask_array(
                         main_array=subswath_mask_main_image,
                         side_array=subswath_mask_side_image,
                         low_band_array=subswath_mask_image,
                         high_band_array=subswath_mask_image,
                         slant_main=main_slant,
                         slant_side=side_slant)
-                    mask_array = mask_array & mask_image
+                    mask_array &= mask_subswath
 
                 if "water" in mask_type:
                     # Extract preprocessing dictionary and open arrays
@@ -1844,7 +1867,7 @@ def run(cfg: dict, runw_hdf5: str):
                         zip(block_params, block_params_side)):
 
                     block_rows_data = block_parm.read_length
-                    row_start = block * blocksize
+                    row_start = block_ind * blocksize
 
                     if iono_method in iono_method_sideband:
                         block_parm_iono = block_parm_side
@@ -1977,25 +2000,43 @@ def run(cfg: dict, runw_hdf5: str):
                                 erosion_size=bridge_erosion_size,
                                 ramp_type=bridge_deramp_type,
                                 deramp_max_num_sample=bridge_ramp_maximum_pixel)
-                            side_image = bridge_unwrapped_phase(
-                                side_image,
-                                radius=bridge_radius,
-                                min_num_pixel=bridge_minimum_samples,
-                                erosion_size=bridge_erosion_size,
-                                ramp_type=bridge_deramp_type,
-                                deramp_max_num_sample=bridge_ramp_maximum_pixel)
+
+                            if iono_method == 'main_side_band':
+                                side_image = bridge_unwrapped_phase(
+                                    side_image,
+                                    radius=bridge_radius,
+                                    min_num_pixel=bridge_minimum_samples,
+                                    erosion_size=bridge_erosion_size,
+                                    ramp_type=bridge_deramp_type,
+                                    deramp_max_num_sample=bridge_ramp_maximum_pixel)
+
+                            elif iono_method == 'main_diff_ms_band':
+                                diff_ms_image = bridge_unwrapped_phase(
+                                    diff_ms_image,
+                                    radius=bridge_radius,
+                                    min_num_pixel=bridge_minimum_samples,
+                                    erosion_size=bridge_erosion_size,
+                                    ramp_type=bridge_deramp_type,
+                                    deramp_max_num_sample=bridge_ramp_maximum_pixel)
 
                             if block_ind > 0:
                                 main_image, _ = compute_phase_jump(
                                     previous_main_with_pad,
                                     main_image,
                                     half_pad_length)
-                                side_image, _ = compute_phase_jump(
-                                    previous_side_with_pad,
-                                    side_image,
-                                    half_pad_length)
+                                if iono_method == 'main_side_band':
+                                    side_image, _ = compute_phase_jump(
+                                        previous_side_with_pad,
+                                        side_image,
+                                        half_pad_length)
+                                elif iono_method == 'main_diff_ms_band':
+                                    diff_ms_image, _ = compute_phase_jump(
+                                        previous_diff_ms_with_pad,
+                                        diff_ms_image,
+                                        half_pad_length)
                             previous_main_with_pad = main_image
                             previous_side_with_pad = side_image
+                            previous_diff_ms_with_pad = diff_ms_image
 
                     # Estimating phase unwrapping errors
                     com_unw_err, diff_unw_err = \
