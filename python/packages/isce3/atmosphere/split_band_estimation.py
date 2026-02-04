@@ -461,6 +461,7 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
             self,
             main_coh=None,
             side_coh=None,
+            diff_ms_coh=None,
             low_band_coh=None,
             high_band_coh=None,
             diff_low_high_coh=None,
