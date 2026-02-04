@@ -421,6 +421,7 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
             self,
             main_coh=None,
             side_coh=None,
+            diff_ms_coh=None,
             low_band_coh=None,
             high_band_coh=None,
             diff_low_high_coh=None,
@@ -458,9 +459,21 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
         sig_nondisp : numpy.ndarray
             phase standard deviation of non-dispersive
         """
+        if side_coh is None and diff_ms_coh is None:
+            raise ValueError(
+                "estimate_iono_std requires at least one of "
+                "`diff_ms_coh` or `side_coh` to be provided."
+            )
+        if main_coh is None:
+            raise ValueError(
+                "estimate_iono_std requires "
+                "`main_coh` to be provided."
+            )
+        side_used_coh = diff_ms_coh if diff_ms_coh is not None else side_coh
+
         # resample coherences array of frequency A to
         # frequency B grid
-        if (side_coh is not None) and (resample_flag):
+        if resample_flag:
             if slant_main is None:
                 slant_main = self.slant_main
             if slant_side is None:
@@ -471,18 +484,18 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
                 slant_side,
                 main_coh)
 
+        sig_phi_main = np.divide(
+            np.sqrt(1 - main_coh**2),
+            main_coh * np.sqrt(2 * number_looks),
+            out=np.zeros_like(main_coh),
+            where=main_coh != 0)
+
         # estimate sigma from main- and side- band coherences
-        if (main_coh is not None) & (side_coh is not None):
-            sig_phi_main = np.divide(
-                np.sqrt(1 - main_coh**2),
-                main_coh * np.sqrt(2 * number_looks),
-                out=np.zeros_like(main_coh),
-                where=main_coh != 0)
-            sig_phi_side = np.divide(
-                np.sqrt(1 - side_coh**2),
-                side_coh * np.sqrt(2 * number_looks),
-                out=np.zeros_like(side_coh),
-                where=side_coh != 0)
+        sig_phi_side = np.divide(
+            np.sqrt(1 - side_used_coh**2),
+            side_used_coh * np.sqrt(2 * number_looks),
+            out=np.zeros_like(side_used_coh),
+            where=side_used_coh != 0)
 
         sig_phi_iono, sig_nondisp = \
             self.estimate_sigma(
