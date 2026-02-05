@@ -700,7 +700,7 @@ def compute_unwrapp_error_main_diff_ms_band(
         (main_runw - (nondisp_array + disp_array)) / (2 * np.pi))
     term1 = f_diff / f0 * nondisp_array
     term2 = f_diff / f1 * disp_array
-    diff_unw_coeff = np.round(
+    diff_unw_coeff = -1 * np.round(
         (diff_ms_runw + term1 - term2) / (2 * np.pi))
 
     return com_unw_coeff, diff_unw_coeff
