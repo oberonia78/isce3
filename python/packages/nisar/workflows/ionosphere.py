@@ -1710,6 +1710,7 @@ def run(cfg: dict, runw_hdf5: str):
                         diff_ms_array=diff_ms_conn_image,
                         low_band_array=sub_low_conn_image,
                         high_band_array=sub_high_conn_image,
+                        diff_low_high_band_array=diff_subband_conn_image,
                         slant_main=main_slant,
                         slant_side=side_slant)
                     mask_array = mask_array & mask_image
