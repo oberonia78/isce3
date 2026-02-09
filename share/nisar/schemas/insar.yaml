@@ -765,7 +765,7 @@ dispersive_filter_options:
     # smoothed : apply lienar interpolation and nearest extrapolations
     # distance : distance‑based interpolator that assigns weights to samples
     #            inversely proportional to their spatial distance.
-    filling_method: enum('nearest', 'smoothed', 'distance', 'None', required=False)
+    filling_method: enum('nearest', 'smoothed', 'distance', 'None', 'polyfit', 'multiscale', required=False)
     # 1D gaussian kernel size [pixels] in range/ azimuth
     kernel_range: num(min=1, required=False)
     kernel_azimuth: num(min=1, required=False)

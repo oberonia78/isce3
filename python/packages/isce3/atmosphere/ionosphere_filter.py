@@ -28,7 +28,8 @@ class IonosphereFilter:
                  sig_y,
                  iteration=1,
                  filling_method='nearest',
-                 outputdir='.'):
+                 outputdir='.',
+                 debug=True, debug_every=10000, debug_iters=[0]):
         """Initialized IonosphereFilter with filter options
 
         Parameters
@@ -55,7 +56,9 @@ class IonosphereFilter:
         self.iteration = iteration
         self.filling_method = filling_method
         self.outputdir = outputdir
-
+        self.debug = debug
+        self.debug_every = debug_every      # dump every N blocks (e.g., 50)
+        self.debug_iters = debug_iters      # list like [0] or [0,1], or None for all
     def low_pass_filter(
             self,
             input_data,
@@ -120,7 +123,9 @@ class IonosphereFilter:
             for block_param in block_params:
                 width_offset = pad_width // 2
                 length_offset = pad_length // 2
-
+                block_id = block_param.write_start_line // max(1, block_param.block_length)
+                do_dump = self.debug and (block_id % self.debug_every == 0) and \
+                        (self.debug_iters is None or iter_cnt in self.debug_iters)
                 # Prepare to write temp_files
                 filtered_iono_temp_input_path = \
                     f'{self.outputdir}/filtered_iono_temp{iter_cnt-1}'
@@ -146,12 +151,18 @@ class IonosphereFilter:
                 mask1 = mask0 == 0
 
                 data_block[mask0] = np.nan
+                if do_dump:
+                    fn = f"{self.outputdir}/dbg_iter{iter_cnt}_blk{block_id:04d}_01_masked_raw"
+                    write_array(fn, data_block, block_row=0, data_shape=data_block.shape)
 
                 # remove small areas from images to avoid
                 # the possibility of unwrap errors
                 data_block = remove_small_components(
                     data_block,
                     min_cluster_pixels=min_cluster_pixels)
+                if do_dump:
+                    fn = f"{self.outputdir}/dbg_iter{iter_cnt}_blk{block_id:04d}_02_removed_small"
+                    write_array(fn, data_block, block_row=0, data_shape=data_block.shape)
 
                 if self.filling_method == "smoothed":
                     fill_method = fill_with_smoothed
@@ -159,12 +170,139 @@ class IonosphereFilter:
                     fill_method = fill_nearest
                 elif self.filling_method == "distance":
                     fill_method = fill_with_distance
+                elif self.filling_method == "polyfit":
+                    fill_method = None  # we will call fill_local_poly2d directly
 
                 if self.filling_method in ["distance"]:
                     weight = mask_block.astype('float')
                     filled_data = fill_method(data_block, weight)
                     filled_data_sig = fill_method(data_sig_block, weight)
 
+                elif self.filling_method == "multiscale":
+                    kernel_rows = create_gaussian_kernel(self.y_kernel, self.sig_y).reshape(-1, 1).astype(np.float32)
+                    kernel_cols = create_gaussian_kernel(self.x_kernel, self.sig_x).reshape(1, -1).astype(np.float32)
+                    kernel2d = kernel_rows * kernel_cols
+                    assert data_block.shape == data_sig_block.shape == mask_block.shape
+                    s = float(kernel2d.sum())
+                    if s > 0:
+                        kernel2d /= s
+                    dbg_prefix = f"{self.outputdir}/dbg_ms_"   # base prefix
+                    # filled_data = fill_multiscale_diffusion(
+                    #     data_block,
+                    #     kernel2d=kernel2d,
+                    #     scales=(4, 2),
+                    #     iters_coarse=12,
+                    #     iters_refine=4,
+                    #     iters_fine=6,
+                    #     dbg_prefix=dbg_prefix,
+                    #     dbg_tag=f"iter{iter_cnt}_blk{block_id:04d}_DATA",
+                    #     dbg_dump=do_dump,   # reuse your do_dump logic
+                    # )
+                    filled_data = fill_multiscale_diffusion(
+                        data_block,
+                        x_kernel=self.x_kernel,
+                        y_kernel=self.y_kernel,
+                        sig_x=self.sig_x,
+                        sig_y=self.sig_y,
+                        scales=(8, 4, 2),
+                        iters_coarse=12,
+                        iters_refine=4,
+                        iters_fine=6,
+                        gamma=1.0,         # try 1.0 first; 1.5–2.0 if you want smoother coarse seed
+                        dbg_prefix=dbg_prefix,
+                        dbg_tag=f"iter{iter_cnt}_blk{block_id:04d}_DATA",
+                        dbg_dump=do_dump,
+                    )
+                    if do_dump:
+                        fn = f"{self.outputdir}/dbg_iter{iter_cnt}_blk{block_id:04d}_03_filled"
+                        write_array(fn, filled_data, block_row=0, data_shape=filled_data.shape)
+
+                    # filled_data_sig = fill_multiscale_diffusion(
+                    #     data_sig_block,
+                    #     kernel2d=kernel2d,
+                    #     scales=(4, 2),
+                    #     iters_coarse=12,
+                    #     iters_refine=4,
+                    #     iters_fine=6,
+                    # )
+                    filled_data_sig = fill_multiscale_diffusion(
+                        data_sig_block,
+                        x_kernel=self.x_kernel,
+                        y_kernel=self.y_kernel,
+                        sig_x=self.sig_x,
+                        sig_y=self.sig_y,
+                        scales=(8, 4, 2),
+                        iters_coarse=12,
+                        iters_refine=4,
+                        iters_fine=6,
+                        gamma=1.0,         # try 1.0 first; 1.5–2.0 if you want smoother coarse seed
+                        dbg_prefix=dbg_prefix,
+                        dbg_tag=...,
+                        dbg_dump=False,
+                    )
+
+                elif self.filling_method == "polyfit":
+                    # IMPORTANT: also mask sigma where invalid
+
+                    # Fit parameters (start conservative)
+                    poly_order = 1          # try 1 first; if underfit, use 2
+                    ring_inner = 1.0
+                    ring_outer = 30.0       # tune: ~ 2–4 * sig_y or based on hole size
+                    min_pts = 300
+                    robust = True
+
+                    # filled_data, info = fill_local_poly2d(
+                    #     data_block,
+                    #     order=poly_order,
+                    #     ring_inner=ring_inner,
+                    #     ring_outer=ring_outer,
+                    #     min_pts=min_pts,
+                    #     robust=robust,
+                    #     weight_mode="distance",
+                    # )
+                    filled_data = fill_polyfit_with_fallback(
+                        data_block,
+                        order1_outer=(30.0, 60.0, 120.0),  # expand ring if needed
+                        order=1,
+                        ring_inner=1.0,
+                        min_pts=300,
+                        robust=True,
+                        weight_mode="distance",
+                        fallback="nearest",   # cheap and guarantees coverage
+                    )
+                    # filled_data[mask1] = data_block[mask1]   # keep original valid pixels
+
+                    print("valid before polyfit:", np.isfinite(data_block).sum(),
+                        "total:", data_block.size,
+                        "pct_valid:", 100*np.isfinite(data_block).mean())
+                    if do_dump:
+                        fn = f"{self.outputdir}/dbg_iter{iter_cnt}_blk{block_id:04d}_03_polyfilled"
+                        write_array(fn, filled_data, block_row=0, data_shape=filled_data.shape)
+
+                    # For sigma/STD: fit VARIANCE instead of sigma (more stable)
+                    # var_block = (data_sig_block.astype(np.float32) ** 2)
+                    # var_filled, info2 = fill_local_poly2d(
+                    #     var_block,
+                    #     order=1,                 # keep variance fit simple
+                    #     ring_inner=ring_inner,
+                    #     ring_outer=ring_outer,
+                    #     min_pts=min_pts,
+                    #     robust=robust,
+                    #     weight_mode="distance",
+                    # )
+                    # filled_data_sig = np.sqrt(np.maximum(var_filled, 0.0)).astype(np.float32)
+                    var_block = (data_sig_block.astype(np.float32) ** 2)
+                    var_filled = fill_polyfit_with_fallback(
+                        var_block,
+                        order1_outer=(30.0, 60.0, 120.0),
+                        order=1,
+                        ring_inner=1.0,
+                        min_pts=300,
+                        robust=True,
+                        weight_mode="distance",
+                        fallback="nearest",
+                    )
+                    filled_data_sig = np.sqrt(np.maximum(var_filled, 0.0)).astype(np.float32)
                 else:
                     filled_data_sig = fill_method(data_sig_block)
                     filled_data = fill_method(data_block)
@@ -178,6 +316,9 @@ class IonosphereFilter:
                     unfilt_data_block_sig = read_block_array(input_std_dev,
                                                              block_param)
                     filled_data_sig[mask1] = unfilt_data_block_sig[mask1]
+                if do_dump:
+                    fn = f"{self.outputdir}/dbg_iter{iter_cnt}_blk{block_id:04d}_03b_filled_restored"
+                    write_array(fn, filled_data, block_row=0, data_shape=filled_data.shape)
 
                 # after filling gaps, filter the data
                 filt_data, filt_data_sig = filter_data_with_sig(
@@ -187,7 +328,9 @@ class IonosphereFilter:
                     kernel_length=self.y_kernel,
                     sig_kernel_x=self.sig_x,
                     sig_kernel_y=self.sig_y)
-
+                if do_dump:
+                    fn = f"{self.outputdir}/dbg_iter{iter_cnt}_blk{block_id:04d}_04_filtered"
+                    write_array(fn, filt_data, block_row=0, data_shape=filt_data.shape)
                 # set output to HDF5 for final iteration
                 # otherwise write to temp file
                 if iter_cnt == self.iteration - 1:
@@ -418,7 +561,7 @@ def read_block_array(raster, block_param, fill_value=0):
                   0: block_param.data_width])
     else:
         # Open input data using GDAL to get raster length
-        ds_data = gdal.Open(raster, gdal.GA_Update)
+        ds_data = gdal.Open(raster, gdal.GA_ReadOnly)
         data_block = ds_data.GetRasterBand(1).ReadAsArray(
             0,
             block_param.read_start_line,
@@ -975,3 +1118,504 @@ def remove_small_components(image, min_cluster_pixels):
             cleaned_image[slice_tuple][current_object] = np.nan
 
     return cleaned_image
+
+import numpy as np
+from scipy.ndimage import zoom
+
+import numpy as np
+from scipy.ndimage import zoom
+
+def _downsample_nanmean(data: np.ndarray, valid: np.ndarray, factor: int):
+    if factor <= 1:
+        return data.astype(np.float32, copy=False), valid.copy()
+
+    nrow, ncol = data.shape
+    pr = (-nrow) % factor
+    pc = (-ncol) % factor
+
+    data_pad = np.pad(data, ((0, pr), (0, pc)), mode="constant", constant_values=np.nan)
+    valid_pad = np.pad(valid, ((0, pr), (0, pc)), mode="constant", constant_values=False)
+
+    r2, c2 = data_pad.shape
+    rr = r2 // factor
+    cc = c2 // factor
+
+    data_blk = data_pad.reshape(rr, factor, cc, factor)
+    valid_blk = valid_pad.reshape(rr, factor, cc, factor)
+
+    cnt = valid_blk.sum(axis=(1, 3)).astype(np.float32)
+    s = np.where(valid_blk, np.nan_to_num(data_blk, nan=0.0), 0.0).sum(axis=(1, 3)).astype(np.float32)
+
+    out = np.full((rr, cc), np.nan, dtype=np.float32)
+    m = cnt > 0
+    out[m] = s[m] / cnt[m]
+    return out, m
+
+
+def _upsample_to_shape(a: np.ndarray, out_shape, order=1):
+    in_r, in_c = a.shape
+    out_r, out_c = out_shape
+    zr = out_r / in_r
+    zc = out_c / in_c
+    up = zoom(a, (zr, zc), order=order, mode="nearest", grid_mode=True)
+    up = up[:out_r, :out_c]
+    if up.shape != (out_r, out_c):
+        tmp = np.full((out_r, out_c), np.nan, dtype=np.float32)
+        rr = min(out_r, up.shape[0])
+        cc = min(out_c, up.shape[1])
+        tmp[:rr, :cc] = up[:rr, :cc]
+        up = tmp
+    return up.astype(np.float32, copy=False)
+
+
+def fill_multiscale_diffusion_preokay(data: np.ndarray,
+                              kernel2d: np.ndarray,
+                              scales=(16, 8, 4, 2),
+                              iters_coarse=12,
+                              iters_refine=4,
+                              iters_fine=6,
+                              dbg_prefix=None,
+                              dbg_tag="",
+                              dbg_dump=False):
+
+    def dump(name, arr):
+        if dbg_dump and dbg_prefix is not None:
+            path = f"{dbg_prefix}{dbg_tag}_{name}"
+            _write_envi_float32(path, arr)
+
+    filled = data.astype(np.float32, copy=True)
+    dump("ms00_input_full", filled)
+
+    if (~np.isnan(filled)).all():
+        dump("ms99_output_full", filled)
+        return filled
+
+    init = filled
+
+    # coarse -> fine
+    for f in scales:
+        if f <= 1:
+            continue
+
+        valid = ~np.isnan(init)
+
+        ds, vds = _downsample_nanmean(init, valid, f)
+        dump(f"ms10_ds_f{f:02d}", ds)
+        dump(f"ms11_ds_validmask_f{f:02d}", vds.astype(np.float32))
+
+        if (~np.isnan(ds)).sum() == 0:
+            # nothing valid at this scale; skip
+            continue
+
+        ds_filled = _diffusion_fill_ndimage(ds, kernel2d, iters=iters_coarse)
+        dump(f"ms12_ds_filled_f{f:02d}", ds_filled)
+
+        up = _upsample_to_shape(ds_filled, init.shape, order=1)
+        # alpha = np.clip(vds.astype(float), 0.2, 1.0)
+        # up = alpha * up + (1 - alpha) * np.nanmedian(ds)
+        dump(f"ms13_upseed_f{f:02d}", up)
+
+        # seed only NaNs at current resolution
+        m = np.isnan(init)
+        init2 = init.copy()
+        init2[m] = up[m]
+        dump(f"ms14_seeded_full_f{f:02d}", init2)
+
+        # refine at current resolution (still only fills NaNs)
+        init = _diffusion_fill_ndimage(init2, kernel2d, iters=iters_refine)
+        dump(f"ms15_refined_full_f{f:02d}", init)
+
+    # final refine at full res
+    out = _diffusion_fill_ndimage(init, kernel2d, iters=iters_fine)
+    dump("ms90_final_full", out)
+    return out
+
+def _odd_at_least(n, min_n):
+    n = int(round(n))
+    n = max(min_n, n)
+    return n | 1  # force odd
+
+def _make_kernel2d_for_scale(x_kernel, y_kernel, sig_x, sig_y, f,
+                            min_kernel=7, min_sigma=0.5, gamma=1.0):
+    kx = _odd_at_least(x_kernel / f, min_kernel)
+    ky = _odd_at_least(y_kernel / f, min_kernel)
+    sx = max(min_sigma, (sig_x / f) * gamma)
+    sy = max(min_sigma, (sig_y / f) * gamma)
+
+    rows = create_gaussian_kernel(ky, sy).reshape(-1, 1).astype(np.float32)
+    cols = create_gaussian_kernel(kx, sx).reshape(1, -1).astype(np.float32)
+    k2d = rows * cols
+    k2d /= float(k2d.sum())
+    return k2d, (kx, ky, sx, sy)
+
+def fill_multiscale_diffusion(data: np.ndarray,
+                              x_kernel: int, y_kernel: int,
+                              sig_x: float, sig_y: float,
+                              scales=(4, 2),
+                              iters_coarse=12,
+                              iters_refine=4,
+                              iters_fine=6,
+                              min_kernel=7,
+                              min_sigma=0.5,
+                              gamma=1.0,
+                              dbg_prefix=None,
+                              dbg_tag="",
+                              dbg_dump=False):
+
+    def dump(name, arr):
+        if dbg_dump and dbg_prefix is not None:
+            _write_envi_float32(f"{dbg_prefix}{dbg_tag}_{name}", arr)
+
+    filled = data.astype(np.float32, copy=True)
+    dump("ms00_input_full", filled)
+    if (~np.isnan(filled)).all():
+        dump("ms99_output_full", filled)
+        return filled
+
+    init = filled
+
+    for f in scales:
+        valid = ~np.isnan(init)
+        ds, vds = _downsample_nanmean(init, valid, f)
+        dump(f"ms10_ds_f{f:02d}", ds)
+
+        if np.isfinite(ds).sum() == 0:
+            continue
+
+        k2d_f, (kx, ky, sx, sy) = _make_kernel2d_for_scale(
+            x_kernel, y_kernel, sig_x, sig_y, f,
+            min_kernel=min_kernel, min_sigma=min_sigma, gamma=gamma
+        )
+        # optional: dump kernel params
+        # dump(f"ms_kernelparams_f{f:02d}_kx{kx}_ky{ky}_sx{sx:.2f}_sy{sy:.2f}", np.zeros((1,1),np.float32))
+
+        ds_filled = _diffusion_fill_ndimage(ds, k2d_f, iters=iters_coarse)
+        dump(f"ms12_ds_filled_f{f:02d}", ds_filled)
+
+        up = _upsample_to_shape(ds_filled, init.shape, order=1)
+        dump(f"ms13_upseed_f{f:02d}", up)
+
+        m = np.isnan(init)
+        init2 = init.copy()
+        init2[m] = up[m]
+        dump(f"ms14_seeded_full_f{f:02d}", init2)
+
+        # refinement at full resolution:
+        # you can use either full-res kernel or a "mild" one.
+        # simplest: full-res kernel params (f=1)
+        k2d_full, _ = _make_kernel2d_for_scale(
+            x_kernel, y_kernel, sig_x, sig_y, 1,
+            min_kernel=min_kernel, min_sigma=min_sigma, gamma=1.0
+        )
+        init = _diffusion_fill_ndimage(init2, k2d_full, iters=iters_refine)
+        dump(f"ms15_refined_full_f{f:02d}", init)
+
+    k2d_full, _ = _make_kernel2d_for_scale(
+        x_kernel, y_kernel, sig_x, sig_y, 1,
+        min_kernel=min_kernel, min_sigma=min_sigma, gamma=1.0
+    )
+    out = _diffusion_fill_ndimage(init, k2d_full, iters=iters_fine)
+    dump("ms90_final_full", out)
+    return out
+
+# def _diffusion_fill_ndimage(data: np.ndarray,
+#                             kernel2d: np.ndarray,
+#                             iters: int,
+#                             support_thr=0.02):
+#     """
+#     Mask-normalized diffusion fill using scipy.ndimage.convolve (shape-safe).
+#     Fills NaNs by iteratively smoothing only the missing pixels.
+
+#     data: 2D float array with NaNs as holes
+#     kernel2d: normalized 2D kernel (sum==1 recommended)
+#     """
+def _diffusion_fill_ndimagetest(data: np.ndarray,
+                            kernel2d: np.ndarray,
+                            iters: int):
+    """
+    Mask-normalized diffusion fill using scipy.ndimage.convolve (shape-safe).
+    Fills NaNs by iteratively smoothing only the missing pixels.
+
+    data: 2D float array with NaNs as holes
+    kernel2d: normalized 2D kernel (sum==1 recommended)
+    """
+    filled = data.astype(np.float32, copy=True)
+
+    for _ in range(iters):
+        missing = np.isnan(filled)
+        if not missing.any():
+            break
+
+        valid = (~missing).astype(np.float32)
+
+        # numerator: smooth values (NaNs treated as 0)
+        num = convolve(np.nan_to_num(filled, nan=0.0), kernel2d,
+                       mode="constant", cval=0.0)
+
+        # denominator: smooth support (how many valid pixels contribute)
+        den = convolve(valid, kernel2d, mode="constant", cval=0.0)
+
+        update = np.divide(num, den, out=np.zeros_like(num), where=den > 1e-12)
+
+        filled[missing] = update[missing]
+
+    return filled
+
+
+def _diffusion_fill_ndimage(data, kernel2d, iters, ring=3, support_thr=0.15):
+    filled = data.astype(np.float32, copy=True)
+
+    # use reflect so edges are not biased toward 0
+    full_support = convolve(np.ones_like(filled, dtype=np.float32),
+                            kernel2d, mode="reflect")
+
+    missing0 = np.isnan(filled)
+    if not missing0.any():
+        return filled
+
+    dist = distance_transform_edt(missing0).astype(np.float32)
+    maxd = int(np.nanmax(dist))
+
+    for dmax in range(ring, maxd + ring, ring):
+        for _ in range(iters):
+            missing = np.isnan(filled)
+            if not missing.any():
+                return filled
+
+            stage_mask = missing & (dist <= dmax)
+            valid = (~missing).astype(np.float32)
+
+            num = convolve(np.nan_to_num(filled, nan=0.0), kernel2d, mode="reflect")
+            den = convolve(valid, kernel2d, mode="reflect")
+
+            update = np.divide(num, den, out=np.zeros_like(num), where=den > 1e-12)
+
+            ok = den >= (support_thr * full_support)
+            idx = stage_mask & ok
+            if not idx.any():
+                break
+            filled[idx] = update[idx]
+
+    return filled
+
+from osgeo import gdal
+
+def _write_envi_float32(path_no_ext: str, arr: np.ndarray):
+    """
+    Writes ENVI float32 raster as:
+      - <path_no_ext> (binary)
+      - <path_no_ext>.hdr
+    """
+    arr = np.asarray(arr, dtype=np.float32)
+    rows, cols = arr.shape
+
+    driver = gdal.GetDriverByName("ENVI")
+    ds = driver.Create(path_no_ext, cols, rows, 1, gdal.GDT_Float32)
+    ds.GetRasterBand(1).WriteArray(arr)
+    ds.FlushCache()
+    ds = None
+import numpy as np
+from scipy.ndimage import distance_transform_edt, label, find_objects
+
+def _poly_design_matrix(x: np.ndarray, y: np.ndarray, order: int) -> np.ndarray:
+    """
+    Build design matrix for 2D polynomial:
+      order=1: [1, x, y]
+      order=2: [1, x, y, x^2, x*y, y^2]
+    """
+    x = x.astype(np.float64, copy=False)
+    y = y.astype(np.float64, copy=False)
+
+    if order == 1:
+        return np.stack([np.ones_like(x), x, y], axis=1)
+    elif order == 2:
+        return np.stack([np.ones_like(x), x, y, x*x, x*y, y*y], axis=1)
+    else:
+        raise ValueError("order must be 1 or 2")
+
+def _wls_solve(A: np.ndarray, z: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """
+    Weighted least squares: minimize sum w*(A p - z)^2
+    Implemented via scaling rows by sqrt(w).
+    """
+    w = np.asarray(w, dtype=np.float64)
+    z = np.asarray(z, dtype=np.float64)
+    sw = np.sqrt(np.clip(w, 0.0, np.inf))
+
+    Aw = A * sw[:, None]
+    zw = z * sw
+
+    # lstsq is stable; rcond=None uses default cut-off
+    p, *_ = np.linalg.lstsq(Aw, zw, rcond=None)
+    return p
+
+def fill_local_poly2d(
+    data: np.ndarray,
+    order: int = 1,
+    ring_inner: float = 1.0,
+    ring_outer: float = 30.0,
+    min_pts: int = 300,
+    robust: bool = True,
+    robust_k: float = 3.0,
+    weight_mode: str = "distance",  # "distance" or "uniform"
+    max_support_pts: int = 200000,  # cap to keep it cheap
+    rng: np.random.Generator | None = None,
+):
+    """
+    Component-wise localized polynomial inpainting for NaN holes.
+
+    Parameters
+    ----------
+    data : 2D float array with NaNs for missing
+    order : 1 or 2
+    ring_inner, ring_outer : pixels defining support band around each hole
+        support = pixels with ring_inner <= dist_to_hole <= ring_outer and finite
+    min_pts : minimum number of support points to fit
+    robust : if True, do 2-pass MAD-based outlier rejection
+    robust_k : rejection threshold in MAD units (e.g. 3.0)
+    weight_mode : "distance" weights nearer-to-hole higher; "uniform" all equal
+    max_support_pts : if support has more, subsample for speed
+    rng : optional numpy random generator
+
+    Returns
+    -------
+    filled : copy of data with some NaNs filled
+    info : dict with counters (useful for logging)
+    """
+    if rng is None:
+        rng = np.random.default_rng(0)
+
+    filled = np.array(data, dtype=np.float32, copy=True)
+    nan_mask = ~np.isfinite(filled)
+    if not nan_mask.any():
+        return filled, {"holes": 0, "filled_px": 0, "skipped_holes": 0}
+
+    # Label NaN components (8-connected is usually better for masks)
+    structure = np.ones((3, 3), dtype=np.int8)
+    lbl, ncomp = label(nan_mask, structure=structure)
+    slices = find_objects(lbl)
+
+    filled_px_total = 0
+    skipped = 0
+
+    for i, sl in enumerate(slices, start=1):
+        hole = (lbl[sl] == i)
+        if not hole.any():
+            continue
+
+        block = filled[sl]
+        valid = np.isfinite(block)
+
+        # distance from each pixel to the nearest hole pixel:
+        # dist_to_hole == 0 inside hole, increases outward
+        dist_to_hole = distance_transform_edt(~hole).astype(np.float32)
+
+        # support band around the hole
+        support = valid & (dist_to_hole >= ring_inner) & (dist_to_hole <= ring_outer)
+        n_support = int(support.sum())
+        if n_support < min_pts:
+            skipped += 1
+            continue
+
+        # subsample support if huge
+        if n_support > max_support_pts:
+            idx = np.flatnonzero(support.ravel())
+            pick = rng.choice(idx, size=max_support_pts, replace=False)
+            support2 = np.zeros_like(support, dtype=bool)
+            support2.ravel()[pick] = True
+            support = support2
+            n_support = max_support_pts
+
+        rr, cc = np.nonzero(support)
+        z = block[rr, cc].astype(np.float64)
+
+        # coordinates inside this slice (local coords are fine)
+        x = cc.astype(np.float64)
+        y = rr.astype(np.float64)
+
+        A = _poly_design_matrix(x, y, order=order)
+
+        if weight_mode == "distance":
+            # nearer-to-hole gets higher weight: w ~ exp(-(d/scale)^2)
+            d = dist_to_hole[rr, cc].astype(np.float64)
+            scale = max(1.0, 0.5 * ring_outer)  # tunable
+            w = np.exp(-(d / scale) ** 2)
+        elif weight_mode == "uniform":
+            w = np.ones_like(z, dtype=np.float64)
+        else:
+            raise ValueError("weight_mode must be 'distance' or 'uniform'")
+
+        # --- First fit ---
+        p = _wls_solve(A, z, w)
+
+        # --- Optional robust refit ---
+        if robust:
+            pred = A @ p
+            resid = z - pred
+            mad = np.median(np.abs(resid - np.median(resid))) + 1e-12
+            # keep inliers
+            keep = np.abs(resid) <= (robust_k * 1.4826 * mad)
+            if int(keep.sum()) >= min_pts:
+                A2 = A[keep]
+                z2 = z[keep]
+                w2 = w[keep]
+                p = _wls_solve(A2, z2, w2)
+
+        # Fill hole pixels
+        hr, hc = np.nonzero(hole)
+        if hr.size == 0:
+            continue
+
+        Ah = _poly_design_matrix(hc.astype(np.float64), hr.astype(np.float64), order=order)
+        zh = (Ah @ p).astype(np.float32)
+
+        block_out = block.copy()
+        block_out[hr, hc] = zh
+        filled[sl] = block_out
+
+        filled_px_total += int(hole.sum())
+        
+    return filled, {"holes": int(ncomp), "filled_px": filled_px_total, "skipped_holes": skipped}
+
+def fill_polyfit_with_fallback(
+    data: np.ndarray,
+    order1_outer=(30.0, 60.0, 120.0),
+    order=1,
+    ring_inner=1.0,
+    min_pts=300,
+    robust=True,
+    weight_mode="distance",
+    fallback="nearest",   # "nearest" or "diffusion" or None
+    kernel2d=None,
+    diffusion_iters=8,
+):
+    filled = data.astype(np.float32, copy=True)
+
+    for outer in order1_outer:
+        if (~np.isfinite(filled)).sum() == 0:
+            break
+        filled, info = fill_local_poly2d(
+            filled,
+            order=order,
+            ring_inner=ring_inner,
+            ring_outer=float(outer),
+            min_pts=min_pts,
+            robust=robust,
+            weight_mode=weight_mode,
+        )
+
+    # Final fallback for anything left
+    missing = ~np.isfinite(filled)
+    if missing.any():
+        if fallback == "nearest":
+            filled = fill_nearest(filled, invalid=missing)
+        elif fallback == "diffusion":
+            if kernel2d is None:
+                raise ValueError("kernel2d required for diffusion fallback")
+            filled = _diffusion_fill_ndimage(filled, kernel2d, iters=diffusion_iters)
+        elif fallback is None:
+            pass
+        else:
+            raise ValueError("fallback must be 'nearest', 'diffusion', or None")
+
+    return filled

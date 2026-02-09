@@ -105,7 +105,7 @@ class SplitBandIonosphereEstimation(IonosphereEstimation):
                 phi_main = phi_main - 2 * np.pi * comm_unwcor_coef
                 phi_diff_low_high = phi_diff_low_high - 2 * np.pi *\
                     diff_unwcor_coef
-
+                print('here')
         # For the split_main_band method
         elif phi_sub_high is not None and phi_sub_low is not None:
             no_data_array = (phi_sub_high == no_data) |\
@@ -818,6 +818,59 @@ def compute_unwrapp_error_main_diff_low_high(
     """
 
     freq_diff = freq_high - freq_low
+
+    diff_phase = diff_low_high_runw - \
+        (freq_diff / f0 * nondisp_array + f0 *
+         (1/freq_high - 1/freq_low) * disp_array)
+
+    comm_phase = main_runw - (nondisp_array + disp_array)
+
+    com_unw_coeff = np.rint(comm_phase / (2*np.pi)).astype(np.int32)
+    diff_unw_coeff = np.rint(diff_phase / (2*np.pi)).astype(np.int32)
+    return com_unw_coeff, diff_unw_coeff
+
+
+def compute_unwrapp_error_main_diff_low_high_orig(
+        f0,
+        freq_low,
+        freq_high,
+        disp_array,
+        nondisp_array,
+        diff_low_high_runw,
+        main_runw,
+        low_sub_runw=None,
+        high_sub_runw=None,
+        f1=None,
+        side_runw=None,
+        diff_ms_runw=None):
+    """Compute unwrapping error coefficients.
+
+    Parameters
+    ----------
+    f0 : float
+        radar center frequency of frequency A band
+    freq_low : float
+        radar center frequency of lower sub-band
+    freq_high : float
+        radar center frequency of upper sub-band
+    disp_array : numpy.ndarray
+        2D dispersive array estimated from given methods
+    nondisp_array : numpy.ndarray
+        2D non-dispersive array estimated from given methods
+    low_sub_runw : numpy.ndarray
+        2D runw array of low sub-band interferogram
+    high_sub_runw : numpy.ndarray
+        2D runw array of high sub-band interferogram
+
+    Returns
+    -------
+    com_unw_coeff : numpy.ndarray
+        2D common unwrapping error coefficient array
+    diff_unw_coeff : numpy.ndarray
+        2D differential unwrapping error coefficient array
+    """
+
+    freq_diff = freq_high - freq_low
     freq_sum = freq_high + freq_low
     freq_multi = freq_high * freq_low
 
@@ -832,7 +885,6 @@ def compute_unwrapp_error_main_diff_low_high(
         main_runw / 2) / np.pi)
 
     return com_unw_coeff, diff_unw_coeff
-
 
 def compute_unwrapp_error_split_main_band(
         f0,
