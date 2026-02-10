@@ -1262,6 +1262,7 @@ def run(cfg: dict, runw_hdf5: str):
             main_conn_image = None
             side_conn_image = None
             diff_ms_conn_image = None
+            diff_subband_conn_image = None
 
             # ionosphere method using sub-bands uses subswath mask in freq A
             # ionosphere method using side-band uses subswath masks in freq A and B
