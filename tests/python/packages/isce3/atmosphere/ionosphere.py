@@ -44,7 +44,7 @@ def test_ionosphere_methods():
                                                    freq_high=f0H,
                                                    phi0_low=phi0L,
                                                    phi0_high=phi0H)
-    
+
     phi_iono_main_LH, phi_n_main_LH = estimate_iono_main_diff_low_high(
                                                    f0=f0,
                                                    freq_low=f0L,
@@ -148,8 +148,8 @@ def test_unwrap_error_methods():
     phase0_unwErr = phase0.copy()
 
     phase0_unwErr = phase0_unwErr + common_ref_err
-    phaseSideBand_unwErr = phaseSideBand_unwErr + common_ref_err
-    phase_diffband_unwerr = phase0 - phaseSideBand + diff_ref_err
+    phaseSideBand_unwErr = phaseSideBand_unwErr + common_ref_err + diff_ref_err
+    phase_diffband_unwerr = phase0_unwErr - phaseSideBand_unwErr
     phi_iono_md, phi_n_md = estimate_iono_main_diff(f0, f1, phase0,
                                                     phase0 - phaseSideBand)
 
@@ -159,8 +159,10 @@ def test_unwrap_error_methods():
         disp_array=phi_iono_md, nondisp_array=phi_n_md,
         main_runw=phase0_unwErr, diff_ms_runw=phase_diffband_unwerr)
 
-    difference_comref_md_abs = np.sum(np.abs(com_unw_err * 2*np.pi - common_ref_err))
-    difference_diffref_md_abs = np.sum(np.abs(diff_unw_err* 2*np.pi - diff_ref_err))
+    difference_comref_md_abs = np.sum(np.abs(
+        com_unw_err * 2 * np.pi - common_ref_err))
+    difference_diffref_md_abs = np.sum(np.abs(
+        diff_unw_err * 2 * np.pi - diff_ref_err))
 
     assert difference_comref_md_abs < 1e-5
     assert difference_diffref_md_abs < 1e-5
