@@ -148,8 +148,10 @@ def test_unwrap_error_methods():
     phase0_unwErr = phase0.copy()
 
     phase0_unwErr = phase0_unwErr + common_ref_err
-    phaseSideBand_unwErr = phaseSideBand_unwErr + common_ref_err + diff_ref_err
-    phase_diffband_unwerr = phase0_unwErr - phaseSideBand_unwErr
+    # phaseSideBand_unwErr = phaseSideBand_unwErr + common_ref_err + diff_ref_err
+    # phase_diffband_unwerr = phase0_unwErr - phaseSideBand_unwErr
+    phaseSideBand_unwErr = phaseSideBand_unwErr + common_ref_err
+    phase_diffband_unwerr = phase0 - phaseSideBand + diff_ref_err
     phi_iono_md, phi_n_md = estimate_iono_main_diff(f0, f1, phase0,
                                                     phase0 - phaseSideBand)
 
