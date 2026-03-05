@@ -461,16 +461,17 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
         sig_nondisp : numpy.ndarray
             phase standard deviation of non-dispersive
         """
+        error_channel = journal.error(
+            'MainBandIonosphereEstimation.estimate_iono_std')
         if side_coh is None and diff_ms_coh is None:
-            raise ValueError(
-                "estimate_iono_std requires at least one of "
+            err_str = "estimate_iono_std requires at least one of "\
                 "`diff_ms_coh` or `side_coh` to be provided."
-            )
+            error_channel.log(err_str)
+            raise ValueError(err_str)
         if main_coh is None:
-            raise ValueError(
-                "estimate_iono_std requires "
-                "`main_coh` to be provided."
-            )
+            err_str = "estimate_iono_std requires `main_coh` to be provided."
+            error_channel.log(err_str)
+            raise ValueError(err_str)
         side_used_coh = diff_ms_coh if diff_ms_coh is not None else side_coh
 
         # resample coherences array of frequency A to
