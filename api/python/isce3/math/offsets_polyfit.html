@@ -1015,10 +1015,10 @@ outliers using a w-test controlled by <code>crit_value</code>.</p>
 <p>data : (N, 6) array_like
     Input tie-point array where each row is:
     <code>[id, line, pixel, dL, dP, corr_peak]</code>.
-    - *id* : int-like identifier.
-    - *line, pixel* : coordinates of the tie point.
-    - *dL, dP* : measured offsets in line and pixel directions.
-    - *corr_peak* : correlation peak or quality metric in interval (0, 1], and measurements with larger values get more weight.
+    - <em>id</em> : int-like identifier.
+    - <em>line, pixel</em> : coordinates of the tie point.
+    - <em>dL, dP</em> : measured offsets in line and pixel directions.
+    - <em>corr_peak</em> : correlation peak or quality metric in interval (0, 1], and measurements with larger values get more weight.
 degree : int, optional
     Total degree of the 2D polynomial (<code>1</code> = affine, <code>2</code> = quadratic, ...).
     Default is <code>2</code>.

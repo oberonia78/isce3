@@ -107,9 +107,9 @@ Public Member Functions</h2></td></tr>
 void&#160;</td><td class="memItemRight" valign="bottom"><b>setStream</b> (cudaStream_t stream_)</td></tr>
 <tr class="memdesc:ad5785d825e45fc29b59da51c84a4530a"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set up cuda stream. <br /></td></tr>
 <tr class="separator:ad5785d825e45fc29b59da51c84a4530a"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a9f364da38c1f765b17265a38f42b443a" id="r_a9f364da38c1f765b17265a38f42b443a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9f364da38c1f765b17265a38f42b443a">execute</a> (<a class="el" href="../../db/d90/classcuArrays.html">cuArrays</a>&lt; float2 &gt; *imagesIn, <a class="el" href="../../db/d90/classcuArrays.html">cuArrays</a>&lt; float2 &gt; *imagesOut, int deramp_method=0)</td></tr>
-<tr class="memdesc:a9f364da38c1f765b17265a38f42b443a"><td class="mdescLeft">&#160;</td><td class="mdescRight">Execute fft oversampling.  <br /></td></tr>
-<tr class="separator:a9f364da38c1f765b17265a38f42b443a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a686300d6a3fd300f4a5f2e8db21b5180" id="r_a686300d6a3fd300f4a5f2e8db21b5180"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a686300d6a3fd300f4a5f2e8db21b5180">execute</a> (<a class="el" href="../../db/d90/classcuArrays.html">cuArrays</a>&lt; float2 &gt; *imagesIn, <a class="el" href="../../db/d90/classcuArrays.html">cuArrays</a>&lt; float2 &gt; *imagesOut)</td></tr>
+<tr class="memdesc:a686300d6a3fd300f4a5f2e8db21b5180"><td class="mdescLeft">&#160;</td><td class="mdescRight">Execute fft oversampling.  <br /></td></tr>
+<tr class="separator:a686300d6a3fd300f4a5f2e8db21b5180"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a5d802d6b635d097802b8c7d46788b4d1" id="r_a5d802d6b635d097802b8c7d46788b4d1"><td class="memItemLeft" align="right" valign="top"><a id="a5d802d6b635d097802b8c7d46788b4d1" name="a5d802d6b635d097802b8c7d46788b4d1"></a>
 &#160;</td><td class="memItemRight" valign="bottom"><b>~cuOverSamplerC2C</b> ()</td></tr>
 <tr class="memdesc:a5d802d6b635d097802b8c7d46788b4d1"><td class="mdescLeft">&#160;</td><td class="mdescRight">destructor <br /></td></tr>
@@ -169,8 +169,8 @@ void&#160;</td><td class="memItemRight" valign="bottom"><b>setStream</b> (cudaSt
 </div>
 </div>
 <h2 class="groupheader">Member Function Documentation</h2>
-<a id="a9f364da38c1f765b17265a38f42b443a" name="a9f364da38c1f765b17265a38f42b443a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9f364da38c1f765b17265a38f42b443a">&#9670;&#160;</a></span>execute()</h2>
+<a id="a686300d6a3fd300f4a5f2e8db21b5180" name="a686300d6a3fd300f4a5f2e8db21b5180"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a686300d6a3fd300f4a5f2e8db21b5180">&#9670;&#160;</a></span>execute()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -183,12 +183,7 @@ void&#160;</td><td class="memItemRight" valign="bottom"><b>setStream</b> (cudaSt
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="../../db/d90/classcuArrays.html">cuArrays</a>&lt; float2 &gt; *</td>          <td class="paramname"><span class="paramname"><em>imagesOut</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>method</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>&#160;)</td>
+          <td class="paramtype"><a class="el" href="../../db/d90/classcuArrays.html">cuArrays</a>&lt; float2 &gt; *</td>          <td class="paramname"><span class="paramname"><em>imagesOut</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -198,7 +193,6 @@ void&#160;</td><td class="memItemRight" valign="bottom"><b>setStream</b> (cudaSt
   <table class="params">
     <tr><td class="paramdir">[in]</td><td class="paramname">imagesIn</td><td>input batch of images </td></tr>
     <tr><td class="paramdir">[out]</td><td class="paramname">imagesOut</td><td>output batch of images </td></tr>
-    <tr><td class="paramdir">[in]</td><td class="paramname">method</td><td>phase deramping method </td></tr>
   </table>
   </dd>
 </dl>
