@@ -1744,10 +1744,15 @@ def run(cfg: dict, runw_hdf5: str):
                     water_mask_path = \
                             cfg["dynamic_ancillary_file_group"][
                                 "water_mask_file"]
+                    if iono_method in iono_method_sideband:
+                        water_mask_grid_freq = 'B'
+                    else:
+                        water_mask_grid_freq = 'A'
+
                     water_distance = project_map_to_radar(
                         cfg,
                         water_mask_path,
-                        'A')
+                        water_mask_grid_freq)
                     mask_image = water_distance[
                         row_start:row_start + block_rows_data, :] == 0
                     mask_array = mask_array & mask_image

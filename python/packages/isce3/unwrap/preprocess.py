@@ -284,6 +284,59 @@ def _read_gdal_with_bbox(gdal_raster, bbox):
     return subset_data, [sub_x0, sub_y0, dx, dy]
 
 
+def _find_rdr2geo_paths(scratch_path, freq):
+    """
+    Find x.rdr and y.rdr files for the given frequency inside scratch_path.
+
+    The function searches recursively because the files may exist in several
+    possible directories such as:
+
+        scratch/rdr2geo/freqA/
+        scratch/ionosphere/main_diff_ms_band/rdr2geo/freqB/
+        scratch/ionosphere/main_side_band/rdr2geo/freqB/
+
+    Parameters
+    ----------
+    scratch_path : pathlib.Path
+    freq : str
+
+    Returns
+    -------
+    dict
+        {"x": path_to_x_rdr, "y": path_to_y_rdr}
+
+    Raises
+    ------
+    FileNotFoundError
+        If the rdr2geo files cannot be located.
+    """
+
+    scratch_path = pathlib.Path(scratch_path)
+
+    candidates = list(
+        scratch_path.glob(f"**/rdr2geo/freq{freq}/x.rdr")
+    )
+
+    if not candidates:
+        raise FileNotFoundError(
+            f"Could not find any x.rdr under {scratch_path} "
+            f"for frequency {freq}."
+        )
+
+    # choose the shallowest path (closest to scratch root)
+    candidates.sort(key=lambda p: len(p.parts))
+    x_path = candidates[0]
+
+    y_path = x_path.parent / "y.rdr"
+
+    if not y_path.exists():
+        raise FileNotFoundError(
+            f"Found {x_path} but corresponding y.rdr does not exist."
+        )
+
+    return {"x": str(x_path), "y": str(y_path)}
+
+
 def project_map_to_radar(cfg, input_data_path, freq):
     '''
     Project map coordinate image to radar grid
@@ -302,6 +355,7 @@ def project_map_to_radar(cfg, input_data_path, freq):
     rdr_data: numpy.ndarray
         projected data into radar grid  absolute
     '''
+
     scratch_path = pathlib.Path(cfg['product_path_group']['scratch_path'])
     rdr2geo_path = f'{scratch_path}/rdr2geo'
 
@@ -315,7 +369,7 @@ def project_map_to_radar(cfg, input_data_path, freq):
         rg_looks = unw_rg_looks
 
     # prepare input paths
-    topo_paths = {xy: f'{rdr2geo_path}/freq{freq}/{xy}.rdr' for xy in 'xy'}
+    topo_paths = _find_rdr2geo_paths(scratch_path, freq)
 
     # get input shape and type - input type also output type
     _, output_dtype = _get_gdal_raster_shape_type(input_data_path)
@@ -380,7 +434,7 @@ def project_map_to_radar(cfg, input_data_path, freq):
 
 def interpret_subswath_mask(subswath_mask, nodata=255):
     """
-    Interprets a subswath mask integer by decoding its digits into boolean 
+    Interprets a subswath mask integer by decoding its digits into boolean
     flags indicating reference validity, secondary validity, and water
     presence.
 
