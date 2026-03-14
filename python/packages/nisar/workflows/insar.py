@@ -46,12 +46,6 @@ def run(cfg: dict, out_paths: dict, run_steps: dict):
     if run_steps['geo2rdr']:
         geo2rdr.run(cfg)
 
-    # Remove the rdr2geo scratch folder
-    rdr2geo_scratch_path = pathlib.Path(f"{scratch_path}/rdr2geo")
-    _remove_intermediate_dir(rdr2geo_scratch_path,
-                             intermediate_files_removal_flag,
-                             info_channel)
-
     if run_steps['prepare_insar_hdf5']:
         prepare_insar_hdf5.run(cfg)
 
@@ -72,7 +66,7 @@ def run(cfg: dict, out_paths: dict, run_steps: dict):
         rubbersheet.run(cfg, out_paths['RIFG'])
 
     # Remove the offsets scratch folders
-    for offset_name in ['offsets_product','dense_offsets']:
+    for offset_name in ['offsets_product', 'dense_offsets']:
         offsets_scratch_path = pathlib.Path(f"{scratch_path}/{offset_name}")
         _remove_intermediate_dir(offsets_scratch_path,
                                  intermediate_files_removal_flag,
@@ -110,8 +104,8 @@ def run(cfg: dict, out_paths: dict, run_steps: dict):
         unwrap.run(cfg, out_paths['RIFG'], out_paths['RUNW'])
 
     # Remove the 'fine_resample_slc','crossmul', 'coarse_resample_slc', 'unwrap' scratch folders
-    for workflow_name in ['fine_resample_slc','coarse_resample_slc',
-                          'crossmul','unwrap']:
+    for workflow_name in ['fine_resample_slc', 'coarse_resample_slc',
+                          'crossmul', 'unwrap']:
         workflow_scratch_path = pathlib.Path(f"{scratch_path}/{workflow_name}")
         _remove_intermediate_dir(workflow_scratch_path,
                                  intermediate_files_removal_flag,
@@ -124,7 +118,7 @@ def run(cfg: dict, out_paths: dict, run_steps: dict):
         ionosphere.run(cfg, out_paths['RUNW'])
 
     # Remove the 'rubbersheet_offsets', 'geo2rdr' scratch folders
-    for workflow_name in ['rubbersheet_offsets','geo2rdr']:
+    for workflow_name in ['rubbersheet_offsets', 'geo2rdr']:
         workflow_scratch_path = pathlib.Path(f"{scratch_path}/{workflow_name}")
         _remove_intermediate_dir(workflow_scratch_path,
                                  intermediate_files_removal_flag,
@@ -140,8 +134,8 @@ def run(cfg: dict, out_paths: dict, run_steps: dict):
         # Geocode ROFF
         geocode_insar.run(cfg, out_paths['ROFF'], out_paths['GOFF'], InputProduct.ROFF)
 
-    # Remove the 'ionosphere' and 'geocode_corrections' scratch folders
-    for workflow_name in ['ionosphere','geocode_corrections']:
+    # Remove the 'ionosphere', 'rdr2geo' and 'geocode_corrections' scratch folders
+    for workflow_name in ['ionosphere', 'geocode_corrections', 'rdr2geo']:
         workflow_scratch_path = pathlib.Path(f"{scratch_path}/{workflow_name}")
         _remove_intermediate_dir(workflow_scratch_path,
                                  intermediate_files_removal_flag,
@@ -164,7 +158,7 @@ def run(cfg: dict, out_paths: dict, run_steps: dict):
         baseline.run(cfg, out_paths)
 
     # Remove the 'bandpass','baseline' scratch folders
-    for workflow_name in ['bandpass','baseline']:
+    for workflow_name in ['bandpass', 'baseline']:
         workflow_scratch_path = pathlib.Path(f"{scratch_path}/{workflow_name}")
         _remove_intermediate_dir(workflow_scratch_path,
                                 intermediate_files_removal_flag,

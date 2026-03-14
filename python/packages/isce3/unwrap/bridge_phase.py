@@ -263,11 +263,8 @@ class bridgeConnectComponent:
         regions = find_objects(self.labelImg)
         # if regions are not empty
         if regions:
-            # idx = np.argmax([np.sum(self.labelImg[region])
-            #                  for region in regions])
-            # self.label_ref = idx + 1
             idx = np.argmax([np.sum(self.labelImg[region] == (i + 1))
-                 for i, region in enumerate(regions)])
+                             for i, region in enumerate(regions)])
             self.label_ref = idx + 1
         # if regions are empty
         else:
