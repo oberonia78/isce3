@@ -781,6 +781,8 @@ dispersive_filter_options:
     sigma_azimuth: num(min=1, required=False)
     filter_iterations: num(min=1, max=10, required=False)
     unwrap_correction: bool(required=False)
+    local_unwrap_error_correction: bool(required=False)
+    local_unwrap_error_correction_method: enum('convolution', 'median_filter', required=False)
     min_cluster_pixels: num(min=0, required=False)
 
     bridge_algorithm_enabled: bool(required=False)

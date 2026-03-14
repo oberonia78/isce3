@@ -297,16 +297,20 @@ runconfig:
                     sigma_range: 33
                     sigma_azimuth: 33
                     # Number of iteration for low pass filtering
-                    filter_iterations: 1
+                    filter_iterations: 2
                     # Unwrapping correction bool. If False, only filtering
                     # is applied
-                    unwrap_correction: True
+                    unwrap_correction: False
                     # Before running dispersive_filter, remove every cluster
                     # whose size is strictly smaller than `min_cluster_pixels`.
                     # When `min_cluster_pixels` is 0, this pre-removal step is
                     # skipped entirely.
                     min_cluster_pixels: 2
-                    
+                    # Compenstate the local phase unwrapping error with 
+                    # smoothed interfergraoms. 
+                    local_unwrap_error_correction: True
+                    local_unwrap_error_correction_method: convolution
+
                     bridge_algorithm_enabled: True
                     # Maximum radius used when bridging disconnected
                     # regions.
@@ -316,7 +320,7 @@ runconfig:
                     bridge_erosion_size: 2
                     # Minimum number of pixel of connected components
                     # to retain during processing.
-                    bridge_minimum_samples: 14
+                    bridge_minimum_samples: 0
                     # Ramp type to correct before bridge algoritm
                     bridge_ramp_type:
                     # During deramping, uniform sampling is applied

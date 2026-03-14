@@ -59,7 +59,7 @@ def bridge_unwrapped_phase(unw_phase: np.ndarray,
     channel.log(f"Bridge algorithm : {num_cluster} clusters")
 
     if num_cluster <= 1:
-        channel.log(f"Bridge algorithm is not applied since all components are connected.")
+        channel.log("Bridge algorithm is not applied since all components are connected.")
         return unw_phase
 
     channel.log(f"   radius: {radius}   min_num_pixel: {min_num_pixel}  erosion_size: {erosion_size} ")
@@ -138,9 +138,7 @@ def label_boundary(
     label_img, num_label = nd_label(label_img, structure=np.ones((3, 3)))
     # Create a boundary map using binary dilation and subtracting the original image
     boundary_img = binary_dilation(label_erosion_img) & ~label_erosion_img
-    label_bound = boundary_img.astype(np.uint8)
-    label_bound *= label_erosion_img
-
+    label_bound = boundary_img.astype(np.uint8) * label_img
     return label_img, num_label, label_bound
 
 
@@ -203,8 +201,7 @@ def label_conn_comp(
 
         if len(regions) < num_label:
             channel.log("Regions lost during morphological erosion operation:")
-            erosion_labels = [label_erosion_img[region].max()
-                              for region in regions]
+            erosion_labels = [np.max(label_img[region]) for region in regions]
             for i in range(1, num_label + 1):
                 if i not in erosion_labels:
                     label_img[label_img == i] = 0
@@ -266,8 +263,11 @@ class bridgeConnectComponent:
         regions = find_objects(self.labelImg)
         # if regions are not empty
         if regions:
-            idx = np.argmax([np.sum(self.labelImg[region])
-                             for region in regions])
+            # idx = np.argmax([np.sum(self.labelImg[region])
+            #                  for region in regions])
+            # self.label_ref = idx + 1
+            idx = np.argmax([np.sum(self.labelImg[region] == (i + 1))
+                 for i, region in enumerate(regions)])
             self.label_ref = idx + 1
         # if regions are empty
         else:
