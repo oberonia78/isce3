@@ -64,8 +64,7 @@ class IonosphereFilter:
             filtered_output,
             filtered_std_dev,
             lines_per_block,
-            min_cluster_pixels,
-            save_filled=False):
+            min_cluster_pixels):
         """Apply low_pass_filtering for dispersive and nondispersive
         with standard deviation. Before filtering, fill the gaps with
         smoothed or nearest values.
@@ -153,14 +152,7 @@ class IonosphereFilter:
                 data_block = remove_small_components(
                     data_block,
                     min_cluster_pixels=min_cluster_pixels)
-                if save_filled:
-                    output_filled = \
-                        f'{self.outputdir}/before_filled_iono_temp{iter_cnt}'
-                    write_array(
-                        output_filled,
-                        data_block,
-                        block_row=block_param.write_start_line,
-                        data_shape=data_block.shape)
+
                 if self.filling_method == "smoothed":
                     fill_method = fill_with_smoothed
                 elif self.filling_method == "nearest":
@@ -177,14 +169,6 @@ class IonosphereFilter:
                     filled_data_sig = fill_method(data_sig_block)
                     filled_data = fill_method(data_block)
 
-                if save_filled:
-                    output_filled = \
-                        f'{self.outputdir}/filled_iono_temp{iter_cnt}'
-                    write_array(
-                        output_filled,
-                        filled_data,
-                        block_row=block_param.write_start_line,
-                        data_shape=filled_data.shape)
                 if iter_cnt > 0:
                     # Replace the valid pixels with original unfiltered data
                     # to avoid too much smoothed signal

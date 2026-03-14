@@ -2257,7 +2257,6 @@ def run(cfg: dict, runw_hdf5: str):
                                 iterations=filter_iterations,
                                 filter_method=local_unwrap_error_correction_method
                             )
-
                     # Estimating phase unwrapping errors
                     if unwrap_correction_bool:
                         com_unw_err, diff_unw_err = \
@@ -2275,6 +2274,27 @@ def run(cfg: dict, runw_hdf5: str):
 
                     else:
                         com_unw_err, diff_unw_err = None, None
+                    out_disp_cor_path = os.path.join(
+                        iono_path, iono_method, pol_comb_str,
+                        'after_bridge_main')
+
+                    out_nondisp_cor_path = os.path.join(
+                        iono_path, iono_method, pol_comb_str,
+                        'after_bridge_side')
+
+                    write_array(
+                        out_disp_cor_path,
+                        main_image,
+                        data_type=gdal.GDT_Float32,
+                        block_row=block_parm.write_start_line,
+                        data_shape=main_image.shape)
+
+                    write_array(
+                        out_nondisp_cor_path,
+                        diff_ms_image,
+                        data_type=gdal.GDT_Float32,
+                        block_row=block_parm.write_start_line,
+                        data_shape=diff_ms_image.shape)
 
                     dispersive_unwcor, non_dispersive_unwcor = \
                         iono_phase_obj.compute_disp_nondisp(
