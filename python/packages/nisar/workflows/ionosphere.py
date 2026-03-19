@@ -540,7 +540,9 @@ def compute_differential_phase(
                     first_data_block = _to_complex_if_needed(first_data_block)
                     second_data_block = _to_complex_if_needed(second_data_block)
 
-                    # Optional resampling of FIRST to SECOND grid
+                    # Resample first dataset (frequency A / low subband) to
+                    # match the grid of the second dataset (frequency B / high subband).
+                    # This ensures pixel-wise alignment before phase differencing.
                     if resampling_flag:
                         first_data_block = decimate_freq_a_array(
                             main_slant,
@@ -553,6 +555,17 @@ def compute_differential_phase(
                                 first_mask_block)
 
                     if subswath_mask_enabled:
+                        # Interpretation of input datasets depends on the
+                        # processing context:
+                        # - For main_diff_ms_band:
+                        #     first  → frequency A
+                        #     second → frequency B
+                        # - For main_diff_low_high_subband:
+                        #     first  → low subband
+                        #     second → high subband
+                        # Each mask provides:
+                        #   - reference_valid: valid pixels in reference region
+                        #   - secondary_valid: valid pixels in secondary region
                         first_reference_valid, first_secondary_valid, _ = \
                             interpret_subswath_mask(first_mask_block)
                         second_reference_valid, second_secondary_valid, _ = \
@@ -569,7 +582,6 @@ def compute_differential_phase(
                     # Compute the differential phase
                     diff_phase = first_data_block * np.conj(second_data_block)
                     if invalid is not None:
-                        diff_phase = diff_phase.copy()
                         diff_phase[invalid] = invalid_fill_value
 
                     # Write result block to output
