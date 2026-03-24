@@ -267,92 +267,142 @@ def _transform_bbox_epsg(bbox, src_epsg, dst_epsg):
     return [min(xs), min(ys), max(xs), max(ys)]
 
 
-def _read_gdal_with_bbox(gdal_raster, bbox, bbox_epsg=None):
-    gt = gdal_raster.GetGeoTransform()
-    x0 = gt[0]
-    dx = gt[1]
-    y0 = gt[3]
-    dy = gt[5]
+def _read_gdal_with_bbox(input_raster, bbox, bbox_epsg=4326):
+    """
+    Read only the raster subset intersecting the input bbox.
 
-    ncol = gdal_raster.RasterXSize
-    nrow = gdal_raster.RasterYSize
+    Parameters
+    ----------
+    input_raster : gdal.Dataset
+        Input GDAL raster
+    bbox : list[float]
+        [xmin, ymin, xmax, ymax]
+    bbox_epsg : int
+        EPSG of bbox coordinates
 
-    raster_wkt = gdal_raster.GetProjection()
+    Returns
+    -------
+    arr : numpy.ndarray
+        Raster subset array
+    raster_info : list[float]
+        [block_x0, block_y0, block_dx, block_dy]
+    """
+    gt = input_raster.GetGeoTransform()
+    proj = input_raster.GetProjection()
+    band = input_raster.GetRasterBand(1)
+
+    if band is None:
+        raise RuntimeError("Failed to access raster band.")
+
+    if gt is None:
+        raise RuntimeError("Raster geotransform is missing.")
+
+    # north-up only, same practical assumption as most GeoTIFF use cases here
+    if gt[2] != 0 or gt[4] != 0:
+        raise NotImplementedError(
+            "_read_gdal_with_bbox currently supports only north-up rasters."
+        )
+
+    # get raster EPSG directly here, without introducing a helper
     raster_srs = osr.SpatialReference()
-    raster_srs.ImportFromWkt(raster_wkt)
-    raster_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    raster_srs.ImportFromWkt(proj)
+
+    try:
+        raster_srs.AutoIdentifyEPSG()
+    except Exception:
+        pass
 
     raster_epsg = raster_srs.GetAuthorityCode(None)
     if raster_epsg is None:
-        raster_epsg = raster_srs.GetAuthorityCode("PROJCS")
-    if raster_epsg is None:
-        raster_epsg = raster_srs.GetAuthorityCode("GEOGCS")
+        raise RuntimeError("Could not determine raster EPSG from projection.")
+    raster_epsg = int(raster_epsg)
 
-    print("Original bbox:", bbox)
-    print("bbox_epsg:", bbox_epsg)
-    print("raster_epsg:", raster_epsg)
-
-    if bbox_epsg is not None and str(bbox_epsg) != str(raster_epsg):
-        # Prefer EPSG-to-EPSG transform if raster EPSG is known
-        if raster_epsg is not None:
-            bbox = _transform_bbox_epsg(bbox, bbox_epsg, int(raster_epsg))
-        else:
-            raise ValueError("Raster EPSG could not be determined.")
-
-    print("Transformed bbox:", bbox)
-
+    # transform bbox to raster CRS only if needed
     xmin, ymin, xmax, ymax = bbox
+    if bbox_epsg != raster_epsg:
+        src_srs = osr.SpatialReference()
+        src_srs.ImportFromEPSG(int(bbox_epsg))
+        dst_srs = osr.SpatialReference()
+        dst_srs.ImportFromEPSG(int(raster_epsg))
 
-    raster_x1 = x0
-    raster_x2 = x0 + ncol * dx
-    raster_y1 = y0
-    raster_y2 = y0 + nrow * dy
+        try:
+            src_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+            dst_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        except Exception:
+            pass
 
-    raster_xmin, raster_xmax = min(raster_x1, raster_x2), max(raster_x1, raster_x2)
-    raster_ymin, raster_ymax = min(raster_y1, raster_y2), max(raster_y1, raster_y2)
+        tx = osr.CoordinateTransformation(src_srs, dst_srs)
 
-    inter_xmin = max(xmin, raster_xmin)
-    inter_xmax = min(xmax, raster_xmax)
-    inter_ymin = max(ymin, raster_ymin)
-    inter_ymax = min(ymax, raster_ymax)
+        corners = [
+            tx.TransformPoint(float(xmin), float(ymin))[:2],
+            tx.TransformPoint(float(xmin), float(ymax))[:2],
+            tx.TransformPoint(float(xmax), float(ymin))[:2],
+            tx.TransformPoint(float(xmax), float(ymax))[:2],
+        ]
+        xs = [p[0] for p in corners]
+        ys = [p[1] for p in corners]
+        xmin, xmax = min(xs), max(xs)
+        ymin, ymax = min(ys), max(ys)
 
-    print("Raster extent:", raster_xmin, raster_ymin, raster_xmax, raster_ymax)
-    print("Intersection:", inter_xmin, inter_ymin, inter_xmax, inter_ymax)
+    x0 = gt[0]
+    dx = gt[1]
+    y0 = gt[3]
+    dy = gt[5]  # usually negative
 
-    if inter_xmin >= inter_xmax or inter_ymin >= inter_ymax:
-        return None
+    raster_width = input_raster.RasterXSize
+    raster_height = input_raster.RasterYSize
 
-    idx_start = int(np.floor((inter_xmin - x0) / dx))
-    idx_end = int(np.ceil((inter_xmax - x0) / dx))
+    raster_xmin = min(x0, x0 + raster_width * dx)
+    raster_xmax = max(x0, x0 + raster_width * dx)
+    raster_ymin = min(y0, y0 + raster_height * dy)
+    raster_ymax = max(y0, y0 + raster_height * dy)
 
-    if dy > 0:
-        idy_start = int(np.floor((inter_ymin - y0) / dy))
-        idy_end = int(np.ceil((inter_ymax - y0) / dy))
-    else:
-        idy_start = int(np.floor((inter_ymax - y0) / dy))
-        idy_end = int(np.ceil((inter_ymin - y0) / dy))
+    # intersect requested bbox with raster bounds
+    xmin_i = max(xmin, raster_xmin)
+    xmax_i = min(xmax, raster_xmax)
+    ymin_i = max(ymin, raster_ymin)
+    ymax_i = min(ymax, raster_ymax)
 
-    idx_start, idx_end = min(idx_start, idx_end), max(idx_start, idx_end)
-    idy_start, idy_end = min(idy_start, idy_end), max(idy_start, idy_end)
+    if xmin_i >= xmax_i or ymin_i >= ymax_i:
+        raise ValueError("Input bbox does not overlap raster.")
 
-    idx_start = max(0, min(idx_start, ncol))
-    idx_end = max(0, min(idx_end, ncol))
-    idy_start = max(0, min(idy_start, nrow))
-    idy_end = max(0, min(idy_end, nrow))
+    # convert bbox to pixel window
+    col0 = int(np.floor((xmin_i - x0) / dx))
+    col1 = int(np.ceil((xmax_i - x0) / dx))
 
-    x_width = idx_end - idx_start
-    y_length = idy_end - idy_start
+    row_a = int(np.floor((ymin_i - y0) / dy))
+    row_b = int(np.ceil((ymax_i - y0) / dy))
+    row_c = int(np.floor((ymax_i - y0) / dy))
+    row_d = int(np.ceil((ymin_i - y0) / dy))
+    row0 = min(row_a, row_b, row_c, row_d)
+    row1 = max(row_a, row_b, row_c, row_d)
 
-    if x_width <= 0 or y_length <= 0:
-        return None
+    # optional small padding for nearest-neighbor safety
+    col0 -= 1
+    row0 -= 1
+    col1 += 1
+    row1 += 1
 
-    sub_x0 = x0 + idx_start * dx
-    sub_y0 = y0 + idy_start * dy
+    # clip to raster
+    col0 = max(0, col0)
+    row0 = max(0, row0)
+    col1 = min(raster_width, col1)
+    row1 = min(raster_height, row1)
 
-    band = gdal_raster.GetRasterBand(1)
-    subset_data = band.ReadAsArray(idx_start, idy_start, x_width, y_length)
+    win_x = col1 - col0
+    win_y = row1 - row0
 
-    return subset_data, [sub_x0, sub_y0, dx, dy]
+    if win_x <= 0 or win_y <= 0:
+        raise ValueError("Computed raster window is empty.")
+
+    arr = band.ReadAsArray(col0, row0, win_x, win_y)
+    if arr is None:
+        raise RuntimeError("Failed to read raster window.")
+
+    block_x0 = x0 + col0 * dx
+    block_y0 = y0 + row0 * dy
+
+    return arr, [block_x0, block_y0, dx, dy]
 
 
 def _find_rdr2geo_paths(scratch_path, freq):
@@ -408,98 +458,183 @@ def _find_rdr2geo_paths(scratch_path, freq):
     return {"x": str(x_path), "y": str(y_path)}
 
 
-def project_map_to_radar(cfg, input_data_path, freq):
-    '''
-    Project map coordinate image to radar grid
+def project_map_to_radar(
+    cfg,
+    input_data_path,
+    freq,
+    out_block_rows=512,
+    out_block_cols=512,
+    output_memmap_path=None,
+):
+    """
+    Project map coordinate image to radar grid using block-wise processing.
 
     Parameters
     ----------
-    cfg: dict
-        input runconfig file
-    input_data_path: str
-        input file path for map coordinate image
-    freq: str
-        frequency to be projected
+    cfg : dict
+        Input runconfig file.
+    input_data_path : str
+        Input file path for map coordinate image.
+    freq : str
+        Frequency to be projected.
+    out_block_rows : int
+        Number of output decimated rows to process per block.
+    out_block_cols : int
+        Number of output decimated cols to process per block.
+    output_memmap_path : str or None
+        If given, output is stored in a memmap on disk instead of RAM.
 
     Returns
     -------
-    rdr_data: numpy.ndarray
-        projected data into radar grid  absolute
-    '''
-
-    scratch_path = pathlib.Path(cfg['product_path_group']['scratch_path'])
-    rdr2geo_path = f'{scratch_path}/rdr2geo'
+    rdr_data : numpy.ndarray or np.memmap
+        Projected image in radar grid.
+    """
+    scratch_path = pathlib.Path(cfg["product_path_group"]["scratch_path"])
 
     az_looks = cfg["processing"]["crossmul"]["azimuth_looks"]
     rg_looks = cfg["processing"]["crossmul"]["range_looks"]
     unw_az_looks = cfg["processing"]["phase_unwrap"]["azimuth_looks"]
     unw_rg_looks = cfg["processing"]["phase_unwrap"]["range_looks"]
+
     if unw_az_looks != 1:
         az_looks = unw_az_looks
     if unw_rg_looks != 1:
         rg_looks = unw_rg_looks
 
-    # prepare input paths
     topo_paths = _find_rdr2geo_paths(scratch_path, freq)
 
-    # get input shape and type - input type also output type
+    x_ds = gdal.Open(topo_paths["x"], gdal.GA_ReadOnly)
+    y_ds = gdal.Open(topo_paths["y"], gdal.GA_ReadOnly)
+    if x_ds is None or y_ds is None:
+        raise RuntimeError("Failed to open rdr2geo x/y rasters.")
+
+    x_band = x_ds.GetRasterBand(1)
+    y_band = y_ds.GetRasterBand(1)
+
+    full_rows = y_ds.RasterYSize
+    full_cols = y_ds.RasterXSize
+
+    out_rows = full_rows // az_looks
+    out_cols = full_cols // rg_looks
+
+    # center pixel positions of each multilook block
+    slice_az_start = az_looks // 2
+    slice_rg_start = rg_looks // 2
+
     _, output_dtype = _get_gdal_raster_shape_type(input_data_path)
-    geo_data_raster = gdal.Open(input_data_path)
 
-    # for both x and y rasters, decimate and get extents
-    decimated_blocks = {}
-    decimated_extents = {}
-    for xy, input_path in topo_paths.items():
-        # open input raster for reading
-        input_data_raster = gdal.Open(input_path)
-        input_data = input_data_raster.ReadAsArray()
-        rows, cols = input_data.shape
-        # if multi-looks are 1 or 2,
-        # slice_az_end and slice_rg_end are 0. To avoid the positive
-        # number, we take None.
-        az_size = rows // az_looks
-        rg_size = cols // rg_looks
-        slice_az_start = int(az_looks / 2)
-        slice_az_end = az_size * az_looks
-        slice_rg_start = int(rg_looks / 2)
-        slice_rg_end = rg_size * rg_looks
+    geo_ds = gdal.Open(input_data_path, gdal.GA_ReadOnly)
+    if geo_ds is None:
+        raise RuntimeError(f"Failed to open input map raster: {input_data_path}")
 
-        # take center pixels of block to decimate
-        decimated_arr = \
-            input_data[slice_az_start:slice_az_end:az_looks,
-                       slice_rg_start:slice_rg_end:rg_looks]
+    if output_memmap_path is not None:
+        output_arrays = np.memmap(
+            output_memmap_path,
+            dtype=output_dtype,
+            mode="w+",
+            shape=(out_rows, out_cols),
+        )
+        output_arrays[:] = 0
+    else:
+        output_arrays = np.zeros((out_rows, out_cols), dtype=output_dtype)
 
-        # save decimated extents and array for current axis
-        decimated_extents[xy] = [np.nanmin(decimated_arr),
-                                 np.nanmax(decimated_arr)]
-        decimated_blocks[xy] = decimated_arr
-        del input_data
+    for out_r0 in range(0, out_rows, out_block_rows):
+        out_r1 = min(out_r0 + out_block_rows, out_rows)
 
-    # get bounding for decimated extents
-    bbox = [decimated_extents['x'][0], decimated_extents['y'][0],
-            decimated_extents['x'][1], decimated_extents['y'][1]]
-    print(bbox)
-    # read map bounded by decimated extents of xy block
-    input_arr_block, [block_x0, block_y0, block_dx, block_dy] = \
-        _read_gdal_with_bbox(geo_data_raster, bbox, bbox_epsg=4326)
+        src_r0 = slice_az_start + out_r0 * az_looks
+        src_r1 = slice_az_start + (out_r1 - 1) * az_looks + 1
 
-    # prepare output array
-    output_arrays = np.zeros(decimated_blocks['y'].shape,
-                             dtype=output_dtype)
+        for out_c0 in range(0, out_cols, out_block_cols):
+            out_c1 = min(out_c0 + out_block_cols, out_cols)
 
-    # prepare coordinates to map to
-    coordinates = ((decimated_blocks['y'] - block_y0) / block_dy,
-                   (decimated_blocks['x'] - block_x0) / block_dx)
-    # map input raster to decimated coordinates
-    map_coordinates(input_arr_block,
-                    coordinates,
-                    output=output_arrays,
-                    mode='nearest',
-                    order=0,
-                    cval=np.nan,
-                    prefilter=False)
+            src_c0 = slice_rg_start + out_c0 * rg_looks
+            src_c1 = slice_rg_start + (out_c1 - 1) * rg_looks + 1
 
-    # stack to make whole then return
+            win_x = src_c1 - src_c0
+            win_y = src_r1 - src_r0
+            if win_x <= 0 or win_y <= 0:
+                continue
+
+            x_block_full = x_band.ReadAsArray(src_c0, src_r0, win_x, win_y)
+            y_block_full = y_band.ReadAsArray(src_c0, src_r0, win_x, win_y)
+
+            if x_block_full is None or y_block_full is None:
+                raise RuntimeError(
+                    f"Failed to read rdr2geo block: "
+                    f"xoff={src_c0}, yoff={src_r0}, xsize={win_x}, ysize={win_y}"
+                )
+
+            # center-pixel decimation
+            x_block = x_block_full[::az_looks, ::rg_looks]
+            y_block = y_block_full[::az_looks, ::rg_looks]
+            del x_block_full, y_block_full
+
+            # shape safety
+            expected_shape = (out_r1 - out_r0, out_c1 - out_c0)
+            if x_block.shape != expected_shape or y_block.shape != expected_shape:
+                raise RuntimeError(
+                    f"Unexpected decimated block shape. "
+                    f"Expected={expected_shape}, x={x_block.shape}, y={y_block.shape}"
+                )
+
+            valid_mask = np.isfinite(x_block) & np.isfinite(y_block)
+            if not np.any(valid_mask):
+                continue
+
+            bbox = [
+                float(np.nanmin(x_block[valid_mask])),
+                float(np.nanmin(y_block[valid_mask])),
+                float(np.nanmax(x_block[valid_mask])),
+                float(np.nanmax(y_block[valid_mask])),
+            ]
+
+            try:
+                input_arr_block, [block_x0, block_y0, block_dx, block_dy] = (
+                    _read_gdal_with_bbox(
+                        geo_ds,
+                        bbox,
+                        bbox_epsg=4326,
+                    )
+                )
+            except ValueError:
+                # no overlap with map raster
+                continue
+
+            # scipy coordinates are (row, col)
+            row_coords = (y_block - block_y0) / block_dy
+            col_coords = (x_block - block_x0) / block_dx
+
+            # for north-up raster, block_dy is negative, and above formula is still correct
+            # because GDAL row relation uses the same dy sign.
+
+            # Fill invalid coordinates to something harmless.
+            # They will be reset after sampling.
+            safe_row_coords = np.where(valid_mask, row_coords, 0.0)
+            safe_col_coords = np.where(valid_mask, col_coords, 0.0)
+
+            sampled = np.empty(expected_shape, dtype=output_dtype)
+
+            map_coordinates(
+                input_arr_block,
+                [safe_row_coords, safe_col_coords],
+                output=sampled,
+                mode="nearest",
+                order=0,
+                cval=0,
+                prefilter=False,
+            )
+
+            # reset invalid radar coords to zero
+            if np.issubdtype(sampled.dtype, np.floating):
+                sampled[~valid_mask] = np.nan
+            else:
+                sampled[~valid_mask] = 0
+
+            output_arrays[out_r0:out_r1, out_c0:out_c1] = sampled
+
+            del x_block, y_block, input_arr_block, sampled
+            del row_coords, col_coords, safe_row_coords, safe_col_coords, valid_mask
+
     return output_arrays
 
 
