@@ -1,7 +1,7 @@
 import pathlib
 import journal
 import numpy as np
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from scipy.ndimage import median_filter, map_coordinates
 
@@ -222,64 +222,135 @@ def _get_gdal_raster_shape_type(raster_path):
     return data_shape, np_data_type
 
 
-def _read_gdal_with_bbox(gdal_raster, bbox):
-    '''
-    Extract image from the gdal-supported file with bbox
+def _transform_bbox_epsg(bbox, src_epsg, dst_epsg):
+    """
+    Transform bbox from source EPSG to destination EPSG.
 
     Parameters
     ----------
-    gdal_raster: osgeo.gdal.Dataset
-        gdal dataset to extract the subset image
-    bbox: list
-        list of [xmin, ymin, xmax, ymax]
+    bbox : list or tuple
+        [xmin, ymin, xmax, ymax]
+    src_epsg : int
+        EPSG of input bbox
+    dst_epsg : int
+        EPSG of output bbox
 
     Returns
     -------
-    subset_data: numpy.ndarray
-        Median absolute deviation of `arr`
-    [sub_x0, sub_y0, dx, dy]: list
-        sub_x0: x coordinate of upper left
-        sub_y0: y coordinate of upper left
-        dx: x spacing
-        dy: y spacing
-    '''
+    list
+        Transformed bbox [xmin, ymin, xmax, ymax]
+    """
     xmin, ymin, xmax, ymax = bbox
 
-    geotransform = gdal_raster.GetGeoTransform()
-    x0 = geotransform[0]
-    y0 = geotransform[3]
-    dx = geotransform[1]
-    dy = geotransform[5]
+    src_srs = osr.SpatialReference()
+    src_srs.ImportFromEPSG(int(src_epsg))
+    src_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
 
-    idx_start = int(np.floor((xmin - x0) / dx))
-    idx_end = int(np.ceil((xmax - x0) / dx))
+    dst_srs = osr.SpatialReference()
+    dst_srs.ImportFromEPSG(int(dst_epsg))
+    dst_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+    transformer = osr.CoordinateTransformation(src_srs, dst_srs)
+
+    corners_lonlat = [
+        (xmin, ymin),
+        (xmin, ymax),
+        (xmax, ymin),
+        (xmax, ymax),
+    ]
+
+    transformed = [transformer.TransformPoint(x, y) for x, y in corners_lonlat]
+
+    xs = [p[0] for p in transformed]
+    ys = [p[1] for p in transformed]
+
+    return [min(xs), min(ys), max(xs), max(ys)]
+
+
+def _read_gdal_with_bbox(gdal_raster, bbox, bbox_epsg=None):
+    gt = gdal_raster.GetGeoTransform()
+    x0 = gt[0]
+    dx = gt[1]
+    y0 = gt[3]
+    dy = gt[5]
+
+    ncol = gdal_raster.RasterXSize
+    nrow = gdal_raster.RasterYSize
+
+    raster_wkt = gdal_raster.GetProjection()
+    raster_srs = osr.SpatialReference()
+    raster_srs.ImportFromWkt(raster_wkt)
+    raster_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+    raster_epsg = raster_srs.GetAuthorityCode(None)
+    if raster_epsg is None:
+        raster_epsg = raster_srs.GetAuthorityCode("PROJCS")
+    if raster_epsg is None:
+        raster_epsg = raster_srs.GetAuthorityCode("GEOGCS")
+
+    print("Original bbox:", bbox)
+    print("bbox_epsg:", bbox_epsg)
+    print("raster_epsg:", raster_epsg)
+
+    if bbox_epsg is not None and str(bbox_epsg) != str(raster_epsg):
+        # Prefer EPSG-to-EPSG transform if raster EPSG is known
+        if raster_epsg is not None:
+            bbox = _transform_bbox_epsg(bbox, bbox_epsg, int(raster_epsg))
+        else:
+            raise ValueError("Raster EPSG could not be determined.")
+
+    print("Transformed bbox:", bbox)
+
+    xmin, ymin, xmax, ymax = bbox
+
+    raster_x1 = x0
+    raster_x2 = x0 + ncol * dx
+    raster_y1 = y0
+    raster_y2 = y0 + nrow * dy
+
+    raster_xmin, raster_xmax = min(raster_x1, raster_x2), max(raster_x1, raster_x2)
+    raster_ymin, raster_ymax = min(raster_y1, raster_y2), max(raster_y1, raster_y2)
+
+    inter_xmin = max(xmin, raster_xmin)
+    inter_xmax = min(xmax, raster_xmax)
+    inter_ymin = max(ymin, raster_ymin)
+    inter_ymax = min(ymax, raster_ymax)
+
+    print("Raster extent:", raster_xmin, raster_ymin, raster_xmax, raster_ymax)
+    print("Intersection:", inter_xmin, inter_ymin, inter_xmax, inter_ymax)
+
+    if inter_xmin >= inter_xmax or inter_ymin >= inter_ymax:
+        return None
+
+    idx_start = int(np.floor((inter_xmin - x0) / dx))
+    idx_end = int(np.ceil((inter_xmax - x0) / dx))
 
     if dy > 0:
-        idy_start = int(np.floor((ymin - y0) / dy))
-        idy_end = int(np.ceil((ymax - y0) / dy))
-        sub_y0 = idy_start*dy + y0
+        idy_start = int(np.floor((inter_ymin - y0) / dy))
+        idy_end = int(np.ceil((inter_ymax - y0) / dy))
     else:
-        idy_start = int(np.floor((ymax - y0) / dy))
-        idy_end = int(np.ceil((ymin - y0) / dy))
+        idy_start = int(np.floor((inter_ymax - y0) / dy))
+        idy_end = int(np.ceil((inter_ymin - y0) / dy))
 
-    idx_start = max(0, idx_start)
-    idy_start = max(0, idy_start)
+    idx_start, idx_end = min(idx_start, idx_end), max(idx_start, idx_end)
+    idy_start, idy_end = min(idy_start, idy_end), max(idy_start, idy_end)
+
+    idx_start = max(0, min(idx_start, ncol))
+    idx_end = max(0, min(idx_end, ncol))
+    idy_start = max(0, min(idy_start, nrow))
+    idy_end = max(0, min(idy_end, nrow))
 
     x_width = idx_end - idx_start
     y_length = idy_end - idy_start
 
-    if x_width > gdal_raster.RasterXSize:
-        x_width = gdal_raster.RasterXSize
-    if y_length > gdal_raster.RasterYSize:
-        y_length = gdal_raster.RasterYSize
+    if x_width <= 0 or y_length <= 0:
+        return None
 
-    sub_x0 = idx_start*dx + x0
-    sub_y0 = idy_start*dy + y0
-    raster_band = gdal_raster.GetRasterBand(1)
-    subset_data = raster_band.ReadAsArray(idx_start,
-                                          idy_start,
-                                          x_width,
-                                          y_length)
+    sub_x0 = x0 + idx_start * dx
+    sub_y0 = y0 + idy_start * dy
+
+    band = gdal_raster.GetRasterBand(1)
+    subset_data = band.ReadAsArray(idx_start, idy_start, x_width, y_length)
 
     return subset_data, [sub_x0, sub_y0, dx, dy]
 
@@ -407,10 +478,10 @@ def project_map_to_radar(cfg, input_data_path, freq):
     # get bounding for decimated extents
     bbox = [decimated_extents['x'][0], decimated_extents['y'][0],
             decimated_extents['x'][1], decimated_extents['y'][1]]
-
+    print(bbox)
     # read map bounded by decimated extents of xy block
     input_arr_block, [block_x0, block_y0, block_dx, block_dy] = \
-        _read_gdal_with_bbox(geo_data_raster, bbox)
+        _read_gdal_with_bbox(geo_data_raster, bbox, bbox_epsg=4326)
 
     # prepare output array
     output_arrays = np.zeros(decimated_blocks['y'].shape,
