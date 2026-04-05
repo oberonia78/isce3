@@ -323,6 +323,7 @@ def run(cfg: dict, input_hdf5: str, output_hdf5: str):
 
                 if bridge_cfg['enabled']:
                     unwrapped_phase = dst_h5[unw_path][()]
+                    unwrapped_phase[mask] = 0
                     unwrapped_phase = bridge_unwrapped_phase(
                         unwrapped_phase,
                         radius=bridge_cfg['bridge_radius'],

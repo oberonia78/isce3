@@ -269,7 +269,8 @@ def _transform_bbox_epsg(bbox, src_epsg, dst_epsg):
 
 def _read_gdal_with_bbox(input_raster, bbox, bbox_epsg=4326):
     """
-    Read only the raster subset intersecting the input bbox.
+    Read only the raster subset intersecting the input bbox, and return it
+    reprojected to bbox_epsg.
 
     Parameters
     ----------
@@ -283,9 +284,9 @@ def _read_gdal_with_bbox(input_raster, bbox, bbox_epsg=4326):
     Returns
     -------
     arr : numpy.ndarray
-        Raster subset array
+        Raster subset reprojected to bbox_epsg
     raster_info : list[float]
-        [block_x0, block_y0, block_dx, block_dy]
+        [block_x0, block_y0, block_dx, block_dy] in bbox_epsg coordinates
     """
     gt = input_raster.GetGeoTransform()
     proj = input_raster.GetProjection()
@@ -303,7 +304,6 @@ def _read_gdal_with_bbox(input_raster, bbox, bbox_epsg=4326):
             "_read_gdal_with_bbox currently supports only north-up rasters."
         )
 
-    # get raster EPSG directly here, without introducing a helper
     raster_srs = osr.SpatialReference()
     raster_srs.ImportFromWkt(proj)
 
@@ -317,37 +317,39 @@ def _read_gdal_with_bbox(input_raster, bbox, bbox_epsg=4326):
         raise RuntimeError("Could not determine raster EPSG from projection.")
     raster_epsg = int(raster_epsg)
 
-    # transform bbox to raster CRS only if needed
-    xmin, ymin, xmax, ymax = bbox
+    xmin, ymin, xmax, ymax = map(float, bbox)
+
+    # target SRS = bbox_epsg
+    dst_srs = osr.SpatialReference()
+    dst_srs.ImportFromEPSG(int(bbox_epsg))
+    try:
+        dst_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        raster_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    except Exception:
+        pass
+
+    # First, transform bbox corners to raster CRS only to check overlap
     if bbox_epsg != raster_epsg:
-        src_srs = osr.SpatialReference()
-        src_srs.ImportFromEPSG(int(bbox_epsg))
-        dst_srs = osr.SpatialReference()
-        dst_srs.ImportFromEPSG(int(raster_epsg))
-
-        try:
-            src_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-            dst_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-        except Exception:
-            pass
-
-        tx = osr.CoordinateTransformation(src_srs, dst_srs)
+        tx_to_raster = osr.CoordinateTransformation(dst_srs, raster_srs)
 
         corners = [
-            tx.TransformPoint(float(xmin), float(ymin))[:2],
-            tx.TransformPoint(float(xmin), float(ymax))[:2],
-            tx.TransformPoint(float(xmax), float(ymin))[:2],
-            tx.TransformPoint(float(xmax), float(ymax))[:2],
+            tx_to_raster.TransformPoint(xmin, ymin)[:2],
+            tx_to_raster.TransformPoint(xmin, ymax)[:2],
+            tx_to_raster.TransformPoint(xmax, ymin)[:2],
+            tx_to_raster.TransformPoint(xmax, ymax)[:2],
         ]
         xs = [p[0] for p in corners]
         ys = [p[1] for p in corners]
-        xmin, xmax = min(xs), max(xs)
-        ymin, ymax = min(ys), max(ys)
+        xmin_src, xmax_src = min(xs), max(xs)
+        ymin_src, ymax_src = min(ys), max(ys)
+    else:
+        xmin_src, xmax_src = xmin, xmax
+        ymin_src, ymax_src = ymin, ymax
 
     x0 = gt[0]
     dx = gt[1]
     y0 = gt[3]
-    dy = gt[5]  # usually negative
+    dy = gt[5]
 
     raster_width = input_raster.RasterXSize
     raster_height = input_raster.RasterYSize
@@ -357,52 +359,82 @@ def _read_gdal_with_bbox(input_raster, bbox, bbox_epsg=4326):
     raster_ymin = min(y0, y0 + raster_height * dy)
     raster_ymax = max(y0, y0 + raster_height * dy)
 
-    # intersect requested bbox with raster bounds
-    xmin_i = max(xmin, raster_xmin)
-    xmax_i = min(xmax, raster_xmax)
-    ymin_i = max(ymin, raster_ymin)
-    ymax_i = min(ymax, raster_ymax)
+    xmin_i = max(xmin_src, raster_xmin)
+    xmax_i = min(xmax_src, raster_xmax)
+    ymin_i = max(ymin_src, raster_ymin)
+    ymax_i = min(ymax_src, raster_ymax)
 
     if xmin_i >= xmax_i or ymin_i >= ymax_i:
         raise ValueError("Input bbox does not overlap raster.")
 
-    # convert bbox to pixel window
-    col0 = int(np.floor((xmin_i - x0) / dx))
-    col1 = int(np.ceil((xmax_i - x0) / dx))
+    src_nodata = band.GetNoDataValue()
+    if src_nodata is None:
+        src_nodata = 0
 
-    row_a = int(np.floor((ymin_i - y0) / dy))
-    row_b = int(np.ceil((ymax_i - y0) / dy))
-    row_c = int(np.floor((ymax_i - y0) / dy))
-    row_d = int(np.ceil((ymin_i - y0) / dy))
-    row0 = min(row_a, row_b, row_c, row_d)
-    row1 = max(row_a, row_b, row_c, row_d)
+    # Use source pixel size magnitude to define output resolution in target CRS.
+    # This keeps behavior simple and avoids very strange defaults from Warp.
+    # For your case (bbox_epsg=4326), output grid becomes lon/lat.
+    if bbox_epsg == raster_epsg:
+        out_xres = abs(dx)
+        out_yres = abs(dy)
+    else:
+        tx_to_bbox = osr.CoordinateTransformation(raster_srs, dst_srs)
 
-    # optional small padding for nearest-neighbor safety
-    col0 -= 1
-    row0 -= 1
-    col1 += 1
-    row1 += 1
+        # transform two neighboring source points to estimate target resolution
+        p00 = tx_to_bbox.TransformPoint(x0, y0)[:2]
+        p10 = tx_to_bbox.TransformPoint(x0 + dx, y0)[:2]
+        p01 = tx_to_bbox.TransformPoint(x0, y0 + dy)[:2]
 
-    # clip to raster
-    col0 = max(0, col0)
-    row0 = max(0, row0)
-    col1 = min(raster_width, col1)
-    row1 = min(raster_height, row1)
+        est_dx = abs(p10[0] - p00[0])
+        est_dy = abs(p01[1] - p00[1])
 
-    win_x = col1 - col0
-    win_y = row1 - row0
+        # fallback in case estimate becomes zero or numerically unstable
+        if not np.isfinite(est_dx) or est_dx <= 0:
+            est_dx = max((xmax - xmin) / 1000.0, 1e-6)
+        if not np.isfinite(est_dy) or est_dy <= 0:
+            est_dy = max((ymax - ymin) / 1000.0, 1e-6)
 
-    if win_x <= 0 or win_y <= 0:
-        raise ValueError("Computed raster window is empty.")
+        out_xres = est_dx
+        out_yres = est_dy
 
-    arr = band.ReadAsArray(col0, row0, win_x, win_y)
+    # Warp directly to the requested bbox / requested CRS
+    warped_ds = gdal.Warp(
+        "",
+        input_raster,
+        format="MEM",
+        dstSRS=dst_srs.ExportToWkt(),
+        outputBounds=(xmin, ymin, xmax, ymax),
+        outputBoundsSRS=dst_srs.ExportToWkt(),
+        xRes=out_xres,
+        yRes=out_yres,
+        resampleAlg=gdal.GRA_NearestNeighbour,
+        srcNodata=src_nodata,
+        dstNodata=src_nodata,
+        targetAlignedPixels=False,
+        multithread=False,
+    )
+
+    if warped_ds is None:
+        raise RuntimeError("gdal.Warp failed to create warped subset.")
+
+    warped_band = warped_ds.GetRasterBand(1)
+    if warped_band is None:
+        raise RuntimeError("Failed to access warped raster band.")
+
+    arr = warped_band.ReadAsArray()
     if arr is None:
-        raise RuntimeError("Failed to read raster window.")
+        raise RuntimeError("Failed to read warped raster window.")
 
-    block_x0 = x0 + col0 * dx
-    block_y0 = y0 + row0 * dy
+    warped_gt = warped_ds.GetGeoTransform()
+    if warped_gt is None:
+        raise RuntimeError("Warped raster geotransform is missing.")
 
-    return arr, [block_x0, block_y0, dx, dy]
+    block_x0 = warped_gt[0]
+    block_y0 = warped_gt[3]
+    block_dx = warped_gt[1]
+    block_dy = warped_gt[5]
+
+    return arr, [block_x0, block_y0, block_dx, block_dy]
 
 
 def _find_rdr2geo_paths(scratch_path, freq):

@@ -247,12 +247,13 @@ class bridgeConnectComponent:
         channel = journal.info(
             "isce3.unwrap.bridge_phase.bridgeConnectComponent")
         self.labelImg, self.num_label = label_conn_comp(
-            self.conncomp, min_num_pixel=min_num_pixel)
+            self.conncomp, min_num_pixel=min_num_pixel,
+            erosion_size=erosion_size)
 
         if self.num_label == 1:
-            channel.log(f"Bridge algorithm is not applied because only one component exists.")
+            channel.log("Bridge algorithm is not applied because only one component exists.")
         elif self.num_label == 0:
-            channel.log(f"Bridge algorithm is not applied because component does not exist.")
+            channel.log("Bridge algorithm is not applied because component does not exist.")
 
         self.labelImg, self.num_label, self.labelBound = label_boundary(
             self.labelImg,
@@ -504,6 +505,7 @@ class bridgeConnectComponent:
 
         if ramp_type is not None:
             unw += ramp
+        unw[self.labelImg == 0] = 0
 
         return unw
 
