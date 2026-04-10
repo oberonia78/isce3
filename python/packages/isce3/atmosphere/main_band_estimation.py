@@ -510,17 +510,7 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
             mask=mask,
             method=method,
             percentile=percentile)
-
-        if side_array is not None:
-            _, _, grad_mask_second = detect_high_phase_gradient_local(
-                diff_low_high_band_array,
-                threshold_second,
-                window_size=window,
-                mask=mask,
-                method=method,
-                percentile=percentile)
-
-        elif diff_ms_array is not None:
+        if diff_ms_array is not None:
             _, _, grad_mask_second = detect_high_phase_gradient_local(
                 diff_ms_array,
                 threshold_second,
@@ -528,9 +518,29 @@ class MainBandIonosphereEstimation(IonosphereEstimation):
                 mask=mask,
                 method=method,
                 percentile=percentile)
+        elif side_array is not None:
+            print('side')
+            _, _, grad_mask_second = detect_high_phase_gradient_local(
+                side_array,
+                threshold_second,
+                window_size=window,
+                mask=mask,
+                method=method,
+                percentile=percentile)
+
+        # mask_array = grad_mask_first & grad_mask_second
+        # mask_array = self.remove_single_pixels(mask_array)
+        # mask_array = np.array(mask_array, dtype=bool)
+        print("grad_mask_first dtype:", grad_mask_first.dtype)
+        print("grad_mask_second dtype:", grad_mask_second.dtype)
+        print("combined dtype before remove_single_pixels:", (grad_mask_first & grad_mask_second).dtype)
 
         mask_array = grad_mask_first & grad_mask_second
         mask_array = self.remove_single_pixels(mask_array)
+        print("dtype after remove_single_pixels:", mask_array.dtype)
+
+        mask_array = np.array(mask_array, dtype=bool)
+        print("dtype before return:", mask_array.dtype)
         return mask_array
 
     def estimate_iono_std(

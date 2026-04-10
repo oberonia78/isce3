@@ -1579,25 +1579,25 @@ def run(cfg: dict, runw_hdf5: str):
                             deramp_max_num_sample=bridge_ramp_maximum_pixel)
 
                     elif iono_method == 'main_diff_low_high_subband':
-                        test_path = os.path.join(
-                                iono_path, iono_method, pol_comb_str, 'main_before_bridge')
+                        # test_path = os.path.join(
+                        #         iono_path, iono_method, pol_comb_str, 'main_before_bridge')
 
-                        write_array(
-                            test_path,
-                            main_image,
-                            data_type=gdal.GDT_Float32,
-                            block_row=row_start,
-                            data_shape=main_image.shape)
+                        # write_array(
+                        #     test_path,
+                        #     main_image,
+                        #     data_type=gdal.GDT_Float32,
+                        #     block_row=row_start,
+                        #     data_shape=main_image.shape)
 
-                        test_path = os.path.join(
-                                iono_path, iono_method, pol_comb_str, 'diff_before_bridge')
+                        # test_path = os.path.join(
+                        #         iono_path, iono_method, pol_comb_str, 'diff_before_bridge')
 
-                        write_array(
-                            test_path,
-                            diff_subband_image,
-                            data_type=gdal.GDT_Float32,
-                            block_row=row_start,
-                            data_shape=diff_subband_image.shape)
+                        # write_array(
+                        #     test_path,
+                        #     diff_subband_image,
+                        #     data_type=gdal.GDT_Float32,
+                        #     block_row=row_start,
+                        #     data_shape=diff_subband_image.shape)
                         main_image, main_mask = apply_prebridge_mask(
                             main_image,
                             coherence_image=main_coh_image,
@@ -1640,25 +1640,25 @@ def run(cfg: dict, runw_hdf5: str):
                             deramp_max_num_sample=bridge_ramp_maximum_pixel)
                         main_image[main_image == 0] = np.nan
                         diff_subband_image[diff_subband_image == 0] = np.nan
-                        test_path = os.path.join(
-                                iono_path, iono_method, pol_comb_str, 'main_after_bridge')
+                        # test_path = os.path.join(
+                        #         iono_path, iono_method, pol_comb_str, 'main_after_bridge')
 
-                        write_array(
-                            test_path,
-                            main_image,
-                            data_type=gdal.GDT_Float32,
-                            block_row=row_start,
-                            data_shape=main_image.shape)
+                        # write_array(
+                        #     test_path,
+                        #     main_image,
+                        #     data_type=gdal.GDT_Float32,
+                        #     block_row=row_start,
+                        #     data_shape=main_image.shape)
 
-                        test_path = os.path.join(
-                                iono_path, iono_method, pol_comb_str, 'diff_after_bridge')
+                        # test_path = os.path.join(
+                        #         iono_path, iono_method, pol_comb_str, 'diff_after_bridge')
 
-                        write_array(
-                            test_path,
-                            diff_subband_image,
-                            data_type=gdal.GDT_Float32,
-                            block_row=row_start,
-                            data_shape=diff_subband_image.shape)
+                        # write_array(
+                        #     test_path,
+                        #     diff_subband_image,
+                        #     data_type=gdal.GDT_Float32,
+                        #     block_row=row_start,
+                        #     data_shape=diff_subband_image.shape)
 
             if iono_method in iono_method_sideband:
 
@@ -1775,6 +1775,7 @@ def run(cfg: dict, runw_hdf5: str):
                                 src_diff_h5[rcom_path_freq_b].read_direct(
                                     diff_ms_conn_image,
                                     np.s_[row_start:row_start + block_rows_data, :])
+
                 if local_unwrap_error_correction_enabled:
                     main_image = unwrapping_correction_with_filter(
                         main_image,
@@ -2043,8 +2044,8 @@ def run(cfg: dict, runw_hdf5: str):
                         threshold_second=gradient_mask_threshold_second,
                         method=gradient_mask_method,
                         percentile=gradient_mask_percentile)
-                    mask_array &= mask_gradient
-
+                    # mask_array &= mask_gradient
+                    mask_array = np.logical_and(mask_array, mask_gradient)
                 valid_area = iono_phase_obj.get_valid_area(
                     main_array=main_image,
                     side_array=side_image,
@@ -2258,25 +2259,25 @@ def run(cfg: dict, runw_hdf5: str):
                                 previous_low_with_pad = sub_low_image
                                 previous_high_with_pad = sub_high_image
                             if iono_method == 'main_diff_low_high_subband':
-                                test_path = os.path.join(
-                                        iono_path, iono_method, pol_comb_str, 'main_before_bridge2')
+                                # test_path = os.path.join(
+                                #         iono_path, iono_method, pol_comb_str, 'main_before_bridge2')
 
-                                write_array(
-                                    test_path,
-                                    main_image,
-                                    data_type=gdal.GDT_Float32,
-                                    block_row=row_start,
-                                    data_shape=main_image.shape)
+                                # write_array(
+                                #     test_path,
+                                #     main_image,
+                                #     data_type=gdal.GDT_Float32,
+                                #     block_row=row_start,
+                                #     data_shape=main_image.shape)
 
-                                test_path = os.path.join(
-                                        iono_path, iono_method, pol_comb_str, 'diff_before_bridge2')
+                                # test_path = os.path.join(
+                                #         iono_path, iono_method, pol_comb_str, 'diff_before_bridge2')
 
-                                write_array(
-                                    test_path,
-                                    diff_subband_image,
-                                    data_type=gdal.GDT_Float32,
-                                    block_row=row_start,
-                                    data_shape=diff_subband_image.shape)
+                                # write_array(
+                                #     test_path,
+                                #     diff_subband_image,
+                                #     data_type=gdal.GDT_Float32,
+                                #     block_row=row_start,
+                                #     data_shape=diff_subband_image.shape)
                                 main_image = bridge_unwrapped_phase(
                                     main_image,
                                     radius=bridge_radius,
@@ -2293,25 +2294,25 @@ def run(cfg: dict, runw_hdf5: str):
                                     deramp_max_num_sample=bridge_ramp_maximum_pixel)
                                 main_image[main_image == 0] = np.nan
                                 diff_subband_image[diff_subband_image == 0] = np.nan
-                                test_path = os.path.join(
-                                        iono_path, iono_method, pol_comb_str, 'main_after_bridge2')
+                                # test_path = os.path.join(
+                                #         iono_path, iono_method, pol_comb_str, 'main_after_bridge2')
 
-                                write_array(
-                                    test_path,
-                                    main_image,
-                                    data_type=gdal.GDT_Float32,
-                                    block_row=row_start,
-                                    data_shape=main_image.shape)
+                                # write_array(
+                                #     test_path,
+                                #     main_image,
+                                #     data_type=gdal.GDT_Float32,
+                                #     block_row=row_start,
+                                #     data_shape=main_image.shape)
 
-                                test_path = os.path.join(
-                                        iono_path, iono_method, pol_comb_str, 'diff_after_bridge2')
+                                # test_path = os.path.join(
+                                #         iono_path, iono_method, pol_comb_str, 'diff_after_bridge2')
 
-                                write_array(
-                                    test_path,
-                                    diff_subband_image,
-                                    data_type=gdal.GDT_Float32,
-                                    block_row=row_start,
-                                    data_shape=diff_subband_image.shape)
+                                # write_array(
+                                #     test_path,
+                                #     diff_subband_image,
+                                #     data_type=gdal.GDT_Float32,
+                                #     block_row=row_start,
+                                #     data_shape=diff_subband_image.shape)
                                 if block_ind > 0:
                                     main_image, _ = compute_phase_jump(
                                         previous_low_with_pad,
@@ -2453,25 +2454,25 @@ def run(cfg: dict, runw_hdf5: str):
                                 iterations=filter_iterations,
                                 filter_method=local_unwrap_error_correction_method
                             )
-                            test_path = os.path.join(
-                                    iono_path, iono_method, pol_comb_str, 'main_after_unwrap_filter2')
+                            # test_path = os.path.join(
+                            #         iono_path, iono_method, pol_comb_str, 'main_after_unwrap_filter2')
 
-                            write_array(
-                                test_path,
-                                main_image,
-                                data_type=gdal.GDT_Float32,
-                                block_row=row_start,
-                                data_shape=main_image.shape)
+                            # write_array(
+                            #     test_path,
+                            #     main_image,
+                            #     data_type=gdal.GDT_Float32,
+                            #     block_row=row_start,
+                            #     data_shape=main_image.shape)
 
-                            test_path = os.path.join(
-                                    iono_path, iono_method, pol_comb_str, 'diff_after_unwrap_filter2')
+                            # test_path = os.path.join(
+                            #         iono_path, iono_method, pol_comb_str, 'diff_after_unwrap_filter2')
 
-                            write_array(
-                                test_path,
-                                diff_subband_image,
-                                data_type=gdal.GDT_Float32,
-                                block_row=row_start,
-                                data_shape=diff_subband_image.shape)
+                            # write_array(
+                            #     test_path,
+                            #     diff_subband_image,
+                            #     data_type=gdal.GDT_Float32,
+                            #     block_row=row_start,
+                            #     data_shape=diff_subband_image.shape)
                         elif iono_method == 'main_side_band':
                             main_image = unwrapping_correction_with_filter(
                                 main_image,
