@@ -114,6 +114,14 @@ class IonosphereFilter:
                     driver_name='ENVI')
                 del raster
 
+        # Parameters for robustification
+        guide_sigma = max(self.sig_x, self.sig_y, 1)
+        median_size = max(3, min(self.x_kernel, self.y_kernel))
+        if median_size % 2 == 0:
+            median_size += 1
+
+        eps = 1e-6
+
         for iter_cnt in range(self.iteration):
 
             block_params = block_param_generator(
@@ -131,29 +139,44 @@ class IonosphereFilter:
 
                 block_data_path = filtered_iono_temp_input_path \
                     if iter_cnt > 0 else input_data
-                data_block = read_block_array(block_data_path, block_param)
                 block_sig_path = filtered_std_temp_input_path \
                     if iter_cnt > 0 else input_std_dev
+
+                data_block = read_block_array(block_data_path, block_param)
                 data_sig_block = read_block_array(block_sig_path, block_param)
                 mask_block = read_block_array(mask_path, block_param,
                                               fill_value=0)
 
-                # buffer region represents the additional buffer areas for
-                # the block.
+                # Core (non-padding) region mask, if later needed
                 buffer_region = np.ones_like(mask_block, dtype=bool)
                 buffer_region[
-                    length_offset:length_offset+block_param.block_length,
-                    width_offset:width_offset+block_param.data_width] = 0
-                mask0 = mask_block == 0
-                mask1 = mask0 == 0
-                data_block[data_block==0] = np.nan
-                data_block[mask0] = np.nan
+                    length_offset:length_offset + block_param.block_length,
+                    width_offset:width_offset + block_param.data_width] = 0
 
-                # remove small areas from images to avoid
-                # the possibility of unwrap errors
+                invalid_mask = (mask_block == 0)
+
+                # Convert invalid / zero data to NaN
+                data_block = data_block.astype(np.float32, copy=False)
+                data_sig_block = data_sig_block.astype(np.float32, copy=False)
+
+                data_block[data_block == 0] = np.nan
+                data_block[invalid_mask] = np.nan
+
+                # Keep std-dev mask consistent with data mask
+                data_sig_block[invalid_mask] = np.nan
+                data_sig_block[data_sig_block <= 0] = np.nan
+
+                # Remove small connected components from the data support
                 data_block = remove_small_components(
                     data_block,
                     min_cluster_pixels=min_cluster_pixels)
+
+                # Update validity after removing small components
+                valid_mask = np.isfinite(data_block)
+
+                # Match std-dev validity to cleaned data validity
+                data_sig_block[~valid_mask] = np.nan
+
                 teststr = \
                         f'{self.outputdir}/after_removal_before_filling{iter_cnt}'
 
@@ -162,34 +185,82 @@ class IonosphereFilter:
                     data_block,
                     block_row=block_param.write_start_line,
                     data_shape=data_block.shape)
+
+                # Build guide for filling
+                guide_data = data_block.copy()
+
+                # First pass: suppress impulsive/local spikes
+                guide_data = nan_median_filter(guide_data, size=median_size)
+
+                # Second pass: smooth broad ionosphere structure
+                guide_data = nan_aware_gaussian(guide_data, sigma=guide_sigma)
+
+                # Reject strong local outliers before filling
+                residual = data_block - guide_data
+                finite_res = np.isfinite(residual)
+
+                if np.any(finite_res):
+                    med_res = np.nanmedian(residual)
+                    mad_res = np.nanmedian(np.abs(residual - med_res))
+                    robust_scale = 1.4826 * mad_res
+
+                    if np.isfinite(robust_scale) and robust_scale > 0:
+                        outlier_mask = np.abs(residual - med_res) > 3.5 * robust_scale
+                        data_block[outlier_mask] = np.nan
+                        data_sig_block[outlier_mask] = np.nan
+                        valid_mask = np.isfinite(data_block)
+
+                        # Rebuild guide after removing strong outliers
+                        guide_data = nan_median_filter(data_block, size=median_size)
+                        guide_data = nan_aware_gaussian(guide_data, sigma=guide_sigma)
+
                 if self.filling_method == "smoothed":
                     fill_method = fill_with_smoothed
                 elif self.filling_method == "nearest":
                     fill_method = fill_nearest
                 elif self.filling_method == "distance":
                     fill_method = fill_with_distance
-
-                if self.filling_method in ["distance"]:
-                    weight = mask_block.astype('float')
-                    filled_data = fill_method(data_block, weight)
-                    filled_data_sig = fill_method(data_sig_block, weight)
-
                 else:
-                    filled_data_sig = fill_method(data_sig_block)
-                    filled_data = fill_method(data_block)
+                    raise ValueError(
+                        f"Unsupported filling_method: {self.filling_method}"
+                    )
 
-                if iter_cnt > 0:
-                    # Replace the valid pixels with original unfiltered data
-                    # to avoid too much smoothed signal
-                    unfilt_data_block = read_block_array(input_data,
-                                                         block_param)
-                    filled_data[mask1] = unfilt_data_block[mask1]
-                    unfilt_data_block_sig = read_block_array(input_std_dev,
-                                                             block_param)
-                    filled_data_sig[mask1] = unfilt_data_block_sig[mask1]
-                teststr = \
-                        f'{self.outputdir}/after_filling{iter_cnt}'
+                if self.filling_method == "distance":
+                    # Reliability: valid pixels with lower sigma contribute more
+                    sigma_for_weight = np.where(
+                        np.isfinite(data_sig_block), data_sig_block, np.nan)
+                    weight = np.zeros_like(mask_block, dtype=np.float32)
+                    good_w = np.isfinite(sigma_for_weight) & valid_mask
+                    weight[good_w] = 1.0 / (sigma_for_weight[good_w]**2 + eps)
 
+                    filled_data = fill_method(guide_data, weight)
+
+                    # Fill sigma more conservatively from available sigma field
+                    sigma_fill_source = data_sig_block.copy()
+                    sigma_fill_source[~np.isfinite(sigma_fill_source)] = np.nan
+                    filled_data_sig = fill_method(sigma_fill_source, weight)
+                else:
+                    filled_data = fill_method(guide_data)
+
+                    sigma_fill_source = data_sig_block.copy()
+                    sigma_fill_source[~np.isfinite(sigma_fill_source)] = np.nan
+                    filled_data_sig = fill_method(sigma_fill_source)
+
+                # Always restore original reliable pixels EVERY time
+                filled_data[valid_mask] = data_block[valid_mask]
+                filled_data_sig[valid_mask] = data_sig_block[valid_mask]
+
+                # Fallback protection for any remaining non-finite sigma
+                bad_sig = ~np.isfinite(filled_data_sig) | (filled_data_sig <= 0)
+                if np.any(~bad_sig):
+                    replacement_sig = np.nanmedian(filled_data_sig[~bad_sig])
+                    if not np.isfinite(replacement_sig) or replacement_sig <= 0:
+                        replacement_sig = 1.0
+                    filled_data_sig[bad_sig] = replacement_sig
+                else:
+                    filled_data_sig[:] = 1.0
+
+                teststr = f'{self.outputdir}/after_filling{iter_cnt}'
                 write_array(
                     teststr,
                     filled_data,
@@ -204,8 +275,6 @@ class IonosphereFilter:
                     sig_kernel_x=self.sig_x,
                     sig_kernel_y=self.sig_y)
 
-                # set output to HDF5 for final iteration
-                # otherwise write to temp file
                 if iter_cnt == self.iteration - 1:
                     output_iono = filtered_output
                     output_std = filtered_std_dev
@@ -1148,3 +1217,18 @@ def detect_high_phase_gradient_local(
         return grad_mag, local_grad_score, high_gradient_mask, gx, gy
 
     return grad_mag, local_grad_score, high_gradient_mask
+
+import numpy as np
+from scipy.ndimage import gaussian_filter, median_filter
+
+def nan_aware_gaussian(image, sigma=1.5):
+    valid = np.isfinite(image).astype(float)
+    image0 = np.nan_to_num(image, nan=0.0)
+
+    smooth_num = gaussian_filter(image0, sigma=sigma)
+    smooth_den = gaussian_filter(valid, sigma=sigma)
+
+    out = np.full_like(image, np.nan, dtype=float)
+    good = smooth_den > 1e-6
+    out[good] = smooth_num[good] / smooth_den[good]
+    return out
