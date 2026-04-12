@@ -69,102 +69,62 @@ class IonosphereFilter:
             guide_filter_method="median_gaussian",
             guide_median_size=3,
             outlier_threshold=3.5,
-            outlier_min_scale=0.0,
-    ):
-        """Apply low-pass filtering to dispersive or nondispersive phase data.
+            outlier_min_scale=0.0):
+        """Apply low-pass filtering to dispersive and nondispersive phase
+        with standard deviation.
 
-        This function filters the input phase screen block by block while
-        preserving masked regions and uncertainty information. The processing
-        flow is:
-
-        1. Read one padded block from the input phase, standard deviation,
-        and validity mask.
-        2. Convert invalid pixels to NaN.
-        3. Remove small isolated valid components.
-        4. Build a smooth guide image for robust gap filling.
-        5. Detect strong outliers from the residual between the input data
-        and the guide image using robust statistics.
-        6. Rebuild the guide image after removing the detected outliers.
-        7. Fill NaN gaps using the selected filling method.
-        8. Restore the original reliable pixels so that only invalid pixels
-        are replaced by filled values.
-        9. Apply the final weighted Gaussian low-pass filter using the
-        provided standard deviation image.
-        10. Write the result either to the final output or to intermediate
-            temporary files for the next iteration.
+        This version keeps the overall flow of the old function, but adds:
+        1. guide-image smoothing before gap filling,
+        2. robust outlier rejection,
+        3. restoration of original valid pixels before guide construction,
+        4. restoration of original valid pixels again after filling,
+        5. cropped block writing for padded reads.
 
         Parameters
         ----------
         input_data : str or h5py.Dataset
-            File path or HDF5 dataset containing the phase data to be filtered.
+            File path for data to be filtered.
         input_std_dev : str or h5py.Dataset
-            File path or HDF5 dataset containing the standard deviation
-            associated with `input_data`.
+            File path for standard deviation.
         mask_path : str or h5py.Dataset
-            File path or HDF5 dataset containing the validity mask.
-            Valid pixels should be 1 and invalid pixels should be 0.
+            File path for mask raster.
+            1: valid pixels, 0: invalid pixels.
         filtered_output : str or h5py.Dataset
-            Output file path or HDF5 dataset where the filtered phase
-            will be written.
+            Output file path or dataset for filtered data.
         filtered_std_dev : str or h5py.Dataset
-            Output file path or HDF5 dataset where the filtered standard
-            deviation will be written.
+            Output file path or dataset for filtered standard deviation.
         lines_per_block : int
-            Number of lines to process in each block. The actual value used
-            is capped by the input image length.
+            Number of lines to process in each block.
         min_cluster_pixels : int
-            Minimum number of connected valid pixels required to keep a
-            component. Smaller connected components are removed before
-            interpolation and filtering.
+            Minimum connected valid-pixel cluster size to keep.
         guide_filter_method : {'median_gaussian', 'gaussian', 'none'}, optional
-            Method used to build the smooth guide image for outlier detection
-            and gap filling.
-
-            - 'median_gaussian': apply NaN-aware median filtering followed by
-            NaN-preserving Gaussian convolution.
-            - 'gaussian': apply only NaN-preserving Gaussian convolution.
-            - 'none': do not smooth before filling; the guide is the cleaned
-            input block itself.
+            Method used to build the guide image before filling.
         guide_median_size : int, optional
-            Window size of the NaN-aware median filter used when
-            `guide_filter_method='median_gaussian'`. The value is forced to be
-            an odd integer greater than or equal to 3.
+            Median filter size used when guide_filter_method is
+            'median_gaussian'.
         outlier_threshold : float, optional
-            Threshold multiplier for robust outlier detection. Pixels are marked
-            as outliers when
-
-                abs(residual - median(residual)) >
-                    outlier_threshold * robust_scale
-
-            where `robust_scale = max(1.4826 * MAD, outlier_min_scale)`.
-            A larger value rejects fewer pixels.
+            Threshold multiplier for robust outlier detection.
         outlier_min_scale : float, optional
-            Lower bound for the robust scale used in outlier detection.
-            This prevents the threshold from becoming too small in very
-            clean regions, which would otherwise lead to over-rejection.
+            Minimum scale for robust outlier detection.
 
         Returns
         -------
         None
-            The function writes the filtered phase and filtered standard
-            deviation to the specified outputs.
         """
         data_shape, _ = get_raster_info(input_data)
         data_length, data_width = data_shape
-        # Determine number of blocks to process
-        lines_per_block = min(data_length,
-                              lines_per_block)
-        # Determine the amount of padding
+
+        lines_per_block = min(data_length, lines_per_block)
+
+        # Determine padding
         pad_length = 2 * (self.y_kernel // 2)
         pad_width = 2 * (self.x_kernel // 2)
         pad_shape = (pad_length, pad_width)
 
-        guide_sigma = max(self.sig_x, self.sig_y, 1)
-
-        # Prepare to write output to files
+        # Prepare outputs
         for output in [filtered_output, filtered_std_dev]:
             if not isinstance(output, h5py.Dataset) and \
-               not os.path.isfile(output):
+            not os.path.isfile(output):
                 raster = isce3.io.Raster(
                     path=output,
                     width=data_width,
@@ -174,29 +134,35 @@ class IonosphereFilter:
                     driver_name='ENVI')
                 del raster
 
-        # Parameters for robustification
-        # Median size must be odd and at least 3.
-        median_size = max(3, min(self.x_kernel, self.y_kernel))
+        guide_sigma = max(self.sig_x, self.sig_y, 1)
+        median_size = max(3, guide_median_size)
         if median_size % 2 == 0:
             median_size += 1
-
         eps = 1e-6
 
         for iter_cnt in range(self.iteration):
 
             block_params = block_param_generator(
                 lines_per_block, data_shape, pad_shape)
-            # Start block processing
+
             for block_param in block_params:
                 width_offset = pad_width // 2
                 length_offset = pad_length // 2
 
-                # Prepare to write temp_files
+                row_start = length_offset
+                row_end = length_offset + block_param.block_length
+                col_start = width_offset
+                col_end = width_offset + block_param.data_width
+
+                # Previous iteration temp paths
                 filtered_iono_temp_input_path = \
                     f'{self.outputdir}/filtered_iono_temp{iter_cnt-1}'
                 filtered_std_temp_input_path = \
                     f'{self.outputdir}/filtered_iono_std_temp{iter_cnt-1}'
 
+                # Read current working image:
+                #   iter 0 -> original input
+                #   iter >0 -> previous filtered result
                 block_data_path = filtered_iono_temp_input_path \
                     if iter_cnt > 0 else input_data
                 block_sig_path = filtered_std_temp_input_path \
@@ -204,50 +170,53 @@ class IonosphereFilter:
 
                 data_block = read_block_array(block_data_path, block_param)
                 data_sig_block = read_block_array(block_sig_path, block_param)
-                mask_block = read_block_array(mask_path, block_param,
-                                              fill_value=0)
-                # Pixels marked invalid by the mask are excluded from all
-                # subsequent processing.
-                invalid_mask = (mask_block == 0)
+                mask_block = read_block_array(mask_path, block_param, fill_value=0)
 
-                # Convert invalid / zero data to NaN
+                # Always read original data to preserve valid pixels
+                orig_data_block = read_block_array(input_data, block_param)
+                orig_sig_block = read_block_array(input_std_dev, block_param)
+
                 data_block = data_block.astype(np.float32, copy=False)
                 data_sig_block = data_sig_block.astype(np.float32, copy=False)
+                orig_data_block = orig_data_block.astype(np.float32, copy=False)
+                orig_sig_block = orig_sig_block.astype(np.float32, copy=False)
 
-                data_block[data_block == 0] = np.nan
+                invalid_mask = (mask_block == 0)
+
+                # Mask current working arrays
                 data_block[invalid_mask] = np.nan
-
-                # Keep std-dev mask consistent with data mask
                 data_sig_block[invalid_mask] = np.nan
                 data_sig_block[data_sig_block <= 0] = np.nan
 
-                # Remove small connected components from the data support
-                data_block = remove_small_components(
-                    data_block,
+                # Build original valid support from original image
+                orig_data_block[invalid_mask] = np.nan
+                orig_sig_block[invalid_mask] = np.nan
+                orig_sig_block[orig_sig_block <= 0] = np.nan
+
+                orig_data_block = remove_small_components(
+                    orig_data_block,
                     min_cluster_pixels=min_cluster_pixels)
 
-                # Update validity after removing small components
-                valid_mask = np.isfinite(data_block)
+                orig_valid_mask = np.isfinite(orig_data_block)
+                orig_sig_block[~orig_valid_mask] = np.nan
 
-                # Match std-dev validity to cleaned data validity
-                data_sig_block[~valid_mask] = np.nan
+                # Critical fix:
+                # restore original valid pixels BEFORE guide generation,
+                # so valid support does not drift with iteration count.
+                data_block[orig_valid_mask] = orig_data_block[orig_valid_mask]
+                data_sig_block[orig_valid_mask] = orig_sig_block[orig_valid_mask]
 
-                # Build guide for filling
+                # Guide image for filling
                 guide_data = data_block.copy()
 
                 if guide_filter_method == "median_gaussian":
-                    # First suppress local spikes while preserving broad structure.
                     guide_data = nan_median_filter(
-                        guide_data, size=guide_median_size)
-                    # Then estimate a smooth background with NaN-preserving
-                    # Gaussian convolution.
+                        guide_data, size=median_size)
                     guide_data = nan_aware_gaussian(
                         guide_data, sigma=guide_sigma)
-
                 elif guide_filter_method == "gaussian":
                     guide_data = nan_aware_gaussian(
                         guide_data, sigma=guide_sigma)
-
                 elif guide_filter_method == "none":
                     pass
                 else:
@@ -255,61 +224,47 @@ class IonosphereFilter:
                         "guide_filter_method must be one of "
                         "{'median_gaussian', 'gaussian', 'none'}"
                     )
-                outlier_enabled = (outlier_threshold is not None and
-                                   outlier_threshold > 0 and
-                                   guide_filter_method != 'none')
+
+                # Robust outlier rejection
+                outlier_enabled = (
+                    outlier_threshold is not None and
+                    outlier_threshold > 0 and
+                    guide_filter_method != "none"
+                )
 
                 if outlier_enabled:
-                    # Reject strong local outliers before filling
                     residual = data_block - guide_data
-                    finite_res = np.isfinite(residual)
+                    finite_res = np.isfinite(residual) & orig_valid_mask
 
                     if np.any(finite_res):
                         residual_valid = residual[finite_res]
-
-                        # Finds the central value of residuals
                         med_res = np.nanmedian(residual_valid)
-                        # Compute Median Absolute Deviation (MAD).
-                        # Measure how far residuals deviate from the median.
                         mad_res = np.nanmedian(np.abs(residual_valid - med_res))
-                        # Convert MAD to a robust sigma-like scale.
-                        # For Gaussian data:
-                        #     MAD ≈ 0.6745 * sigma (75th percentile)
-                        # so
-                        #     sigma ≈ 1.4826 * MAD
-                        # A minimum scale can be enforced to avoid over-rejection
-                        # in very clean regions.
                         robust_scale = max(1.4826 * mad_res, outlier_min_scale)
 
                         if np.isfinite(robust_scale) and robust_scale > 0:
-                            outlier_mask = np.zeros_like(residual, dtype=bool)
+                            outlier_mask = np.zeros_like(data_block, dtype=bool)
                             outlier_mask[finite_res] = (
                                 np.abs(residual_valid - med_res) >
                                 outlier_threshold * robust_scale
                             )
-                            # Exclude outliers from both the phase and its uncertainty
-                            # so they do not affect filling or final filtering.
+
+                            # Treat strong outliers as fill targets
                             data_block[outlier_mask] = np.nan
                             data_sig_block[outlier_mask] = np.nan
-                            valid_mask = np.isfinite(data_block)
 
-                            # Rebuild the guide after removing strong outliers.
+                            # Rebuild guide after removing outliers
                             guide_data = data_block.copy()
-
                             if guide_filter_method == "median_gaussian":
                                 guide_data = nan_median_filter(
-                                    guide_data, size=guide_median_size)
+                                    guide_data, size=median_size)
+                                guide_data = nan_aware_gaussian(
+                                    guide_data, sigma=guide_sigma)
+                            elif guide_filter_method == "gaussian":
                                 guide_data = nan_aware_gaussian(
                                     guide_data, sigma=guide_sigma)
 
-                            elif guide_filter_method == "gaussian":
-                                guide_data = nan_aware_gaussian(
-                                    guide_data,
-                                    sigma=guide_sigma)
-
-                            elif guide_filter_method == "none":
-                                pass
-
+                # Select fill method
                 if self.filling_method == "smoothed":
                     fill_method = fill_with_smoothed
                 elif self.filling_method == "nearest":
@@ -321,17 +276,21 @@ class IonosphereFilter:
                         f"Unsupported filling_method: {self.filling_method}"
                     )
 
+                # Fill gaps
                 if self.filling_method == "distance":
-                    # Reliability: valid pixels with lower sigma contribute more
                     sigma_for_weight = np.where(
                         np.isfinite(data_sig_block), data_sig_block, np.nan)
+
                     weight = np.zeros_like(mask_block, dtype=np.float32)
-                    good_w = np.isfinite(sigma_for_weight) & valid_mask
+                    good_w = np.isfinite(sigma_for_weight) & np.isfinite(data_block)
                     weight[good_w] = 1.0 / (sigma_for_weight[good_w]**2 + eps)
+
+                    # Fallback if all weights are zero
+                    if not np.any(weight > 0):
+                        weight = np.isfinite(data_block).astype(np.float32)
 
                     filled_data = fill_method(guide_data, weight)
 
-                    # Fill sigma more conservatively from available sigma field
                     sigma_fill_source = data_sig_block.copy()
                     sigma_fill_source[~np.isfinite(sigma_fill_source)] = np.nan
                     filled_data_sig = fill_method(sigma_fill_source, weight)
@@ -342,12 +301,11 @@ class IonosphereFilter:
                     sigma_fill_source[~np.isfinite(sigma_fill_source)] = np.nan
                     filled_data_sig = fill_method(sigma_fill_source)
 
-                # Restore the original reliable pixels so only invalid/outlier
-                # regions are replaced by interpolated values.
-                filled_data[valid_mask] = data_block[valid_mask]
-                filled_data_sig[valid_mask] = data_sig_block[valid_mask]
+                # Restore original valid pixels again after filling
+                filled_data[orig_valid_mask] = orig_data_block[orig_valid_mask]
+                filled_data_sig[orig_valid_mask] = orig_sig_block[orig_valid_mask]
 
-                # Fallback protection for any remaining non-finite sigma
+                # Sigma fallback
                 bad_sig = ~np.isfinite(filled_data_sig) | (filled_data_sig <= 0)
                 good_sig = (~bad_sig) & np.isfinite(filled_data_sig)
 
@@ -359,7 +317,7 @@ class IonosphereFilter:
                 else:
                     filled_data_sig[:] = 1.0
 
-                # After filling gaps, filter the data
+                # Final filter for this iteration
                 filt_data, filt_data_sig = filter_data_with_sig(
                     input_array=filled_data,
                     sig_array=filled_data_sig,
@@ -368,24 +326,28 @@ class IonosphereFilter:
                     sig_kernel_x=self.sig_x,
                     sig_kernel_y=self.sig_y)
 
+                # Last iteration -> final output, otherwise temp output
                 if iter_cnt == self.iteration - 1:
                     output_iono = filtered_output
                     output_std = filtered_std_dev
                 else:
-                    output_iono = \
-                        f'{self.outputdir}/filtered_iono_temp{iter_cnt}'
-                    output_std = \
-                        f'{self.outputdir}/filtered_iono_std_temp{iter_cnt}'
+                    output_iono = f'{self.outputdir}/filtered_iono_temp{iter_cnt}'
+                    output_std = f'{self.outputdir}/filtered_iono_std_temp{iter_cnt}'
+
+                # Crop padded block before writing
+                out_block = filt_data[row_start:row_end, col_start:col_end].copy()
+                out_sig_block = \
+                    filt_data_sig[row_start:row_end, col_start:col_end].copy()
 
                 write_array(
                     output_iono,
-                    filt_data,
+                    out_block,
                     block_row=block_param.write_start_line,
                     data_shape=data_shape)
 
                 write_array(
                     output_std,
-                    filt_data_sig,
+                    out_sig_block,
                     block_row=block_param.write_start_line,
                     data_shape=data_shape)
 
