@@ -334,20 +334,15 @@ class IonosphereFilter:
                     output_iono = f'{self.outputdir}/filtered_iono_temp{iter_cnt}'
                     output_std = f'{self.outputdir}/filtered_iono_std_temp{iter_cnt}'
 
-                # Crop padded block before writing
-                out_block = filt_data[row_start:row_end, col_start:col_end].copy()
-                out_sig_block = \
-                    filt_data_sig[row_start:row_end, col_start:col_end].copy()
-
                 write_array(
                     output_iono,
-                    out_block,
+                    filt_data,
                     block_row=block_param.write_start_line,
                     data_shape=data_shape)
 
                 write_array(
                     output_std,
-                    out_sig_block,
+                    filt_data_sig,
                     block_row=block_param.write_start_line,
                     data_shape=data_shape)
 
