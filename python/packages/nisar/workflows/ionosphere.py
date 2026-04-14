@@ -1120,7 +1120,7 @@ def run(cfg: dict, runw_hdf5: str):
 
     # Run InSAR for sub-band SLCs (split-main-bands) or
     # for main and side bands for iono_freq_pols (main-side-bands)
-    # insar_ionosphere_pair(iono_insar_cfg, runw_hdf5)
+    insar_ionosphere_pair(iono_insar_cfg, runw_hdf5)
 
     t_all = time.time()
     # Define methods to use subband or sideband
@@ -1255,7 +1255,7 @@ def run(cfg: dict, runw_hdf5: str):
             sub_diff_runw_str = os.path.join(iono_path,
                                              'diff_low_high',
                                              'RUNW.h5')
-
+            
             target_array_str = f'HDF5:{sub_low_runw_str}:/{runw_path_freq_a}'
             target_slc_array = isce3.io.Raster(target_array_str)
             rows_main = target_slc_array.length
