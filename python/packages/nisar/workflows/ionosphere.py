@@ -1082,6 +1082,7 @@ def run(cfg: dict, runw_hdf5: str):
     filling_guide_median_size = filter_cfg['filling_guide_median_size']
     filling_outlier_threshold = filter_cfg['filling_outlier_threshold']
     filling_outlier_min_scale = filter_cfg['filling_outlier_min_scale']
+    filling_outlier_mad_scale_factor = filter_cfg['filling_outlier_mad_scale_factor']    
 
     filter_iterations = filter_cfg['filter_iterations']
     median_filter_size = filter_cfg['median_filter_size']
@@ -1208,6 +1209,11 @@ def run(cfg: dict, runw_hdf5: str):
         sig_y=kernel_sigma_azimuth,
         iteration=filter_iterations,
         filling_method=filling_method,
+        guide_filter_method=filling_guide_filter_method,
+        guide_median_size=filling_guide_median_size,
+        outlier_threshold=filling_outlier_threshold,
+        outlier_min_scale=filling_outlier_min_scale,
+        mad_scale_factor=filling_outlier_mad_scale_factor,
         outputdir=os.path.join(iono_path, iono_method))
 
     # pull parameters for polarizations
@@ -1255,7 +1261,7 @@ def run(cfg: dict, runw_hdf5: str):
             sub_diff_runw_str = os.path.join(iono_path,
                                              'diff_low_high',
                                              'RUNW.h5')
-            
+
             target_array_str = f'HDF5:{sub_low_runw_str}:/{runw_path_freq_a}'
             target_slc_array = isce3.io.Raster(target_array_str)
             rows_main = target_slc_array.length
@@ -1894,11 +1900,7 @@ def run(cfg: dict, runw_hdf5: str):
                         filtered_output=iono_hdf5_path,
                         filtered_std_dev=iono_sig_hdf5_path,
                         lines_per_block=blocksize,
-                        min_cluster_pixels=min_cluster_pixels,
-                        guide_filter_method=filling_guide_filter_method,
-                        guide_median_size=filling_guide_median_size,
-                        outlier_threshold=filling_outlier_threshold,
-                        outlier_min_scale=filling_outlier_min_scale,
+                        min_cluster_pixels=min_cluster_pixels
                         )
                 # oversample ionosphere of frequencyB to frequencyA
                 # and copy them to standard RUNW product.
@@ -1924,10 +1926,6 @@ def run(cfg: dict, runw_hdf5: str):
                     filtered_std_dev=filt_disp_sig_path,
                     lines_per_block=blocksize,
                     min_cluster_pixels=min_cluster_pixels,
-                    guide_filter_method=filling_guide_filter_method,
-                    guide_median_size=filling_guide_median_size,
-                    outlier_threshold=filling_outlier_threshold,
-                    outlier_min_scale=filling_outlier_min_scale,
                     )
 
                 # low pass filtering for non-dispersive phase
@@ -1945,10 +1943,6 @@ def run(cfg: dict, runw_hdf5: str):
                     filtered_std_dev=filt_nondisp_sig_path,
                     lines_per_block=blocksize,
                     min_cluster_pixels=min_cluster_pixels,
-                    guide_filter_method=filling_guide_filter_method,
-                    guide_median_size=filling_guide_median_size,
-                    outlier_threshold=filling_outlier_threshold,
-                    outlier_min_scale=filling_outlier_min_scale,
                     )
 
                 disp_tif = gdal.Open(filt_disp_path)
@@ -2207,10 +2201,6 @@ def run(cfg: dict, runw_hdf5: str):
                         filtered_std_dev=iono_sig_hdf5_path,
                         lines_per_block=blocksize,
                         min_cluster_pixels=min_cluster_pixels,
-                        guide_filter_method=filling_guide_filter_method,
-                        guide_median_size=filling_guide_median_size,
-                        outlier_threshold=filling_outlier_threshold,
-                        outlier_min_scale=filling_outlier_min_scale,
                         )
                 # oversample ionosphere of frequencyB to frequencyA
                 # and copyt them to standard RUNW product.

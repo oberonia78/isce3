@@ -788,6 +788,8 @@ dispersive_filter_options:
     # This prevents the threshold from becoming too small in very
     # clean regions,
     filling_outlier_min_scale: num(min=0, required=False)
+    filling_outlier_mad_scale_factor: num(min=0, required=False)
+
     # 1D gaussian kernel size [pixels] in range/ azimuth
     kernel_range: num(min=1, required=False)
     kernel_azimuth: num(min=1, required=False)

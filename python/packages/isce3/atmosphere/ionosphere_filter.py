@@ -29,6 +29,11 @@ class IonosphereFilter:
                  sig_y,
                  iteration=1,
                  filling_method='nearest',
+                 guide_filter_method="median_gaussian",
+                 guide_median_size=3,
+                 outlier_threshold=3.5,
+                 outlier_min_scale=0.0,
+                 mad_scale_factor=1.4826,
                  outputdir='.'):
         """Initialized IonosphereFilter with filter options
 
@@ -46,6 +51,17 @@ class IonosphereFilter:
             number of iterations for filtering
         filling_method : str {'nearest', 'smoothed'}
             filling gap method for masked area
+        guide_filter_method : {'median_gaussian', 'gaussian', 'none'}, optional
+            Method used to build the guide image before filling.
+        guide_median_size : int, optional
+            Median filter size used when guide_filter_method is
+            'median_gaussian'.
+        outlier_threshold : float, optional
+            Threshold multiplier for robust outlier detection.
+        outlier_min_scale : float, optional
+            Minimum scale for robust outlier detection.
+        mad_scale_factor : float, optional
+            Minimum scale for robust outlier detection.
         outputdir : str
             output directory for filtered dispersive
         """
@@ -56,6 +72,11 @@ class IonosphereFilter:
         self.iteration = iteration
         self.filling_method = filling_method
         self.outputdir = outputdir
+        self.guide_filter_method = guide_filter_method
+        self.guide_median_size = guide_median_size
+        self.outlier_threshold = outlier_threshold
+        self.outlier_min_scale = outlier_min_scale
+        self.mad_scale_factor = mad_scale_factor
 
     def low_pass_filter(
             self,
@@ -66,10 +87,7 @@ class IonosphereFilter:
             filtered_std_dev,
             lines_per_block,
             min_cluster_pixels,
-            guide_filter_method="median_gaussian",
-            guide_median_size=3,
-            outlier_threshold=3.5,
-            outlier_min_scale=0.0):
+            ):
         """Apply low-pass filtering to dispersive and nondispersive phase
         with standard deviation.
 
@@ -97,15 +115,6 @@ class IonosphereFilter:
             Number of lines to process in each block.
         min_cluster_pixels : int
             Minimum connected valid-pixel cluster size to keep.
-        guide_filter_method : {'median_gaussian', 'gaussian', 'none'}, optional
-            Method used to build the guide image before filling.
-        guide_median_size : int, optional
-            Median filter size used when guide_filter_method is
-            'median_gaussian'.
-        outlier_threshold : float, optional
-            Threshold multiplier for robust outlier detection.
-        outlier_min_scale : float, optional
-            Minimum scale for robust outlier detection.
 
         Returns
         -------
@@ -135,7 +144,7 @@ class IonosphereFilter:
                 del raster
 
         guide_sigma = max(self.sig_x, self.sig_y, 1)
-        median_size = max(3, guide_median_size)
+        median_size = max(3, self.guide_median_size)
         if median_size % 2 == 0:
             median_size += 1
         eps = 1e-6
@@ -209,27 +218,27 @@ class IonosphereFilter:
                 # Guide image for filling
                 guide_data = data_block.copy()
 
-                if guide_filter_method == "median_gaussian":
+                if self.guide_filter_method == "median_gaussian":
                     guide_data = nan_median_filter(
                         guide_data, size=median_size)
                     guide_data = nan_aware_gaussian(
                         guide_data, sigma=guide_sigma)
-                elif guide_filter_method == "gaussian":
+                elif self.guide_filter_method == "gaussian":
                     guide_data = nan_aware_gaussian(
                         guide_data, sigma=guide_sigma)
-                elif guide_filter_method == "none":
+                elif self.guide_filter_method == "none":
                     pass
                 else:
                     raise ValueError(
-                        "guide_filter_method must be one of "
+                        "self.guide_filter_method must be one of "
                         "{'median_gaussian', 'gaussian', 'none'}"
                     )
 
                 # Robust outlier rejection
                 outlier_enabled = (
-                    outlier_threshold is not None and
-                    outlier_threshold > 0 and
-                    guide_filter_method != "none"
+                    self.outlier_threshold is not None and
+                    self.outlier_threshold > 0 and
+                    self.guide_filter_method != "none"
                 )
 
                 if outlier_enabled:
@@ -240,13 +249,14 @@ class IonosphereFilter:
                         residual_valid = residual[finite_res]
                         med_res = np.nanmedian(residual_valid)
                         mad_res = np.nanmedian(np.abs(residual_valid - med_res))
-                        robust_scale = max(1.4826 * mad_res, outlier_min_scale)
+                        robust_scale = max(self.mad_scale_factor * mad_res,
+                                           self.outlier_min_scale)
 
                         if np.isfinite(robust_scale) and robust_scale > 0:
                             outlier_mask = np.zeros_like(data_block, dtype=bool)
                             outlier_mask[finite_res] = (
                                 np.abs(residual_valid - med_res) >
-                                outlier_threshold * robust_scale
+                                self.outlier_threshold * robust_scale
                             )
 
                             # Treat strong outliers as fill targets
@@ -255,12 +265,12 @@ class IonosphereFilter:
 
                             # Rebuild guide after removing outliers
                             guide_data = data_block.copy()
-                            if guide_filter_method == "median_gaussian":
+                            if self.guide_filter_method == "median_gaussian":
                                 guide_data = nan_median_filter(
                                     guide_data, size=median_size)
                                 guide_data = nan_aware_gaussian(
                                     guide_data, sigma=guide_sigma)
-                            elif guide_filter_method == "gaussian":
+                            elif self.guide_filter_method == "gaussian":
                                 guide_data = nan_aware_gaussian(
                                     guide_data, sigma=guide_sigma)
 

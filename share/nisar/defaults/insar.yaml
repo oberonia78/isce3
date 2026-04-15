@@ -306,6 +306,8 @@ runconfig:
                     # This prevents the threshold from becoming too small in very
                     # clean regions,
                     filling_outlier_min_scale: 0.0
+                    filling_outlier_mad_scale_factor: 1.4826
+
                     # Kernel size in pixels
                     kernel_range: 100
                     kernel_azimuth: 100
