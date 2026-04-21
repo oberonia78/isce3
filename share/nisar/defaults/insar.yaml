@@ -306,6 +306,11 @@ runconfig:
                     # This prevents the threshold from becoming too small in very
                     # clean regions,
                     filling_outlier_min_scale: 0.0
+                    # Scale factor that converts MAD (median absolute deviation)
+                    # into a sigma-like robust spread estimate for outlier detection.
+                    # For a standard normal variable Z ~ N(0, 1),
+                    # median(|Z|) = Phi^{-1}(0.75) ≈ 0.67449,
+                    # so std ≈ MAD / 0.67449 ≈ 1.4826 * MAD.
                     filling_outlier_mad_scale_factor: 1.4826
 
                     # Kernel size in pixels

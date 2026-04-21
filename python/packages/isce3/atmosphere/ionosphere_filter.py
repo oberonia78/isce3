@@ -388,14 +388,24 @@ def nan_aware_gaussian(image, sigma=1.5):
     out : numpy.ndarray
         Smoothed array of the same shape as `image`.
     """
+    # valid is 1 where the input is finite, 0 where it is NaN
     valid = np.isfinite(image).astype(float)
+
+    # image0 is the input image with NaNs replaced by 0
     image0 = np.nan_to_num(image, nan=0.0)
 
+    # smooth_num is the Gaussian-smoothed sum of nearby pixel values,
+    # but missing pixels contribute 0
     smooth_num = gaussian_filter(image0, sigma=sigma)
+    # smooth_den is the Gaussian-smoothed sum of nearby validity weights,
+    # effectively telling you how much real data contributed
     smooth_den = gaussian_filter(valid, sigma=sigma)
 
     out = np.full_like(image, np.nan, dtype=float)
     good = smooth_den > 1e-6
+
+    # renormalizes the result so NaN gaps do not
+    # artificially pull the average down.
     out[good] = smooth_num[good] / smooth_den[good]
     return out
 
