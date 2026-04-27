@@ -2325,7 +2325,7 @@ void&#160;</td><td class="memItemRight" valign="bottom"><b>print_parameters</b> 
     <tr><td class="paramdir">[in]</td><td class="paramname">xf</td><td>Easting/longitude of eastern edge of bounding box If the DEM is in geographic coordinates and the <code>xf</code> coordinate is not from the polar stereo system EPSG 3031 or EPSG 3413, this point represents the maximum X coordinate value. In this case, the maximum longitude span that this function can handle is 180 degrees (when the DEM is in geographic coordinates and <code>proj</code> is in polar stereo) </td></tr>
     <tr><td class="paramdir">[in]</td><td class="paramname">minY</td><td>Minimum Y/northing position </td></tr>
     <tr><td class="paramdir">[in]</td><td class="paramname">maxY</td><td>Maximum Y/northing position </td></tr>
-    <tr><td class="paramdir">[out]</td><td class="paramname">dem_interp_block</td><td>DEM interpolation object </td></tr>
+    <tr><td class="paramdir">[out]</td><td class="paramname">dem_interp</td><td>DEM interpolation object </td></tr>
     <tr><td class="paramdir">[in]</td><td class="paramname">proj</td><td>Projection object (nullptr to use same DEM projection) </td></tr>
     <tr><td class="paramdir">[in]</td><td class="paramname">dem_margin_x_in_pixels</td><td>DEM X/easting margin in pixels </td></tr>
     <tr><td class="paramdir">[in]</td><td class="paramname">dem_margin_y_in_pixels</td><td>DEM Y/northing margin in pixels </td></tr>
