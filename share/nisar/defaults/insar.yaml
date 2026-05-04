@@ -359,6 +359,13 @@ runconfig:
                     # During deramping, uniform sampling is applied
                     # when number of samples is larger than maximum pixel
                     bridge_ramp_maximum_pixel: 1e6
+                    apply_iono_bridge: False
+                    bridge_method: 'voting'
+                    max_num_neighbor: 30
+                    max_bridge_distance: 1000
+                    residual_ratio_threshold: 0.35
+                    min_vote_confidence: 0.5
+                    min_num_votes: 1
 
             troposphere_delay:
                 # Boolean flag to activate (True) troposphere delay computation

@@ -852,6 +852,14 @@ dispersive_filter_options:
     # During deramping, uniform sampling is applied
     # when number of samples is larger than maximum pixel
     bridge_ramp_maximum_pixel: num(min=0, required=False)
+    apply_iono_bridge: bool(required=False)
+    bridge_method: enum('mst', 'voting', required=False)
+    max_num_neighbor: num(min=0, required=False)
+    max_bridge_distance: num(min=0, required=False)
+    residual_ratio_threshold: num(min=0, required=False) 
+    min_vote_confidence: num(min=0, required=False)
+    min_num_votes: num(min=0, required=False)
+
 
 split_range_spectrum_options:
     # Number of lines per block for block processing)

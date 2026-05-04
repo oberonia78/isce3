@@ -18,7 +18,14 @@ def bridge_unwrapped_phase(unw_phase: np.ndarray,
                            min_num_pixel: int,
                            erosion_size: int,
                            ramp_type: str,
-                           deramp_max_num_sample: int) -> np.ndarray:
+                           deramp_max_num_sample: int,
+                           phase_jump_constant=2.0 * np.pi,
+                           bridge_method: str = "mst",
+                           max_bridge_distance: Optional[float] = 2000, #None,
+                           max_num_neighbor: int = 10,
+                           residual_ratio_threshold: float = 0.35,
+                           min_vote_confidence: float = 0.5,
+                           min_num_votes: int = 1) -> np.ndarray:
     """Bridge disconnected unwrapped phase regions by estimating and removing
     their relative phase offsets, which is interger of 2 pi.
 
@@ -53,28 +60,69 @@ def bridge_unwrapped_phase(unw_phase: np.ndarray,
         2D array with the bridged unwrapped phase image.
     """
     channel = journal.info("isce3.unwrap.bridge_phase.bridge_unwrapped_phase")
+    channel.log("Starting bridge_unwrapped_phase")
+    channel.log(f"phase_jump_constant: {phase_jump_constant}")
 
     runw_img_bool = unw_phase != 0
     label_img, num_cluster = nd_label(runw_img_bool, structure=np.ones((3, 3)))
     channel.log(f"Bridge algorithm : {num_cluster} clusters")
 
     if num_cluster <= 1:
-        channel.log(f"Bridge algorithm is not applied since all components are connected.")
+        channel.log("Bridge algorithm is not applied since all components are connected.")
         return unw_phase
+
+    channel.log(
+        f"Bridge parameters: radius={radius}, "
+        f"min_num_pixel={min_num_pixel}, "
+        f"erosion_size={erosion_size}, "
+        f"ramp_type={ramp_type}, "
+        f"deramp_max_num_sample={deramp_max_num_sample}"
+    )
 
     channel.log(f"   radius: {radius}   min_num_pixel: {min_num_pixel}  erosion_size: {erosion_size} ")
     cc = bridgeConnectComponent(conncomp=label_img)
     cc.label(min_num_pixel=min_num_pixel, erosion_size=erosion_size)
+
+    channel.log(f"Number of labels after cleanup: {cc.num_label}")
+    channel.log(f"Reference label: {cc.label_ref}")
+
     if cc.label_ref is not None:
-        cc.find_mst_bridge()
-        bridge_unw = cc.unwrap_conn_comp(
-            unw_phase,
-            radius=radius,
-            ramp_type=ramp_type,
-            max_num_sample=deramp_max_num_sample
+        if bridge_method == "mst":
+            cc.find_mst_bridge()
+            bridge_unw = cc.unwrap_conn_comp(
+                unw_phase,
+                radius=radius,
+                ramp_type=ramp_type,
+                max_num_sample=deramp_max_num_sample,
+                phase_jump_constant=phase_jump_constant
             )
+
+        elif bridge_method == "voting":
+            bridge_unw = cc.unwrap_conn_comp_with_voting(
+                unw_phase,
+                radius=radius,
+                ramp_type=ramp_type,
+                max_num_sample=deramp_max_num_sample,
+                phase_jump_constant=phase_jump_constant,
+                max_bridge_distance=max_bridge_distance,
+                max_num_neighbor=max_num_neighbor,
+                residual_ratio_threshold=residual_ratio_threshold,
+                min_vote_confidence=min_vote_confidence,
+                min_num_votes=min_num_votes,
+            )
+
+        else:
+            raise ValueError(f"Unsupported bridge_method: {bridge_method}")
+
+        channel.log("Finished unwrap_conn_comp")
+        channel.log(f"Output non-zero pixels: {np.count_nonzero(bridge_unw)}")
+
     else:
+
+        channel.log("Bridge algorithm is skipped because no valid reference label was found.")
         bridge_unw = unw_phase
+    channel.log("Finished bridge_unwrapped_phase")
+
     return bridge_unw
 
 
@@ -250,7 +298,9 @@ class bridgeConnectComponent:
         channel = journal.info(
             "isce3.unwrap.bridge_phase.bridgeConnectComponent")
         self.labelImg, self.num_label = label_conn_comp(
-            self.conncomp, min_num_pixel=min_num_pixel)
+            self.conncomp,
+            min_num_pixel=min_num_pixel,
+            erosion_size=erosion_size)
 
         if self.num_label == 1:
             channel.log(f"Bridge algorithm is not applied because only one component exists.")
@@ -266,8 +316,8 @@ class bridgeConnectComponent:
         regions = find_objects(self.labelImg)
         # if regions are not empty
         if regions:
-            idx = np.argmax([np.sum(self.labelImg[region])
-                             for region in regions])
+            idx = np.argmax([np.sum(self.labelImg[region] == (i + 1))
+                             for i, region in enumerate(regions)])
             self.label_ref = idx + 1
         # if regions are empty
         else:
@@ -325,6 +375,102 @@ class bridgeConnectComponent:
             self.distMat[i, j] = self.distMat[j, i] = dist_min
 
         return self.connDict, self.distMat
+
+    def find_candidate_bridges(
+        self,
+        max_bridge_distance: Optional[float] = None,
+        max_num_neighbor: int = 5,
+    ) -> List[Dict[str, Union[int, float]]]:
+        """
+        Find multiple candidate bridges between connected components.
+
+        Unlike MST, this keeps several nearby bridges per label, which allows
+        voting-based offset estimation and reduces sensitivity to one bad bridge.
+
+        Parameters
+        ----------
+        max_bridge_distance : float, optional
+            Maximum allowed bridge distance. If None, all candidate bridges are kept
+            before applying max_num_neighbor.
+        max_num_neighbor : int
+            Maximum number of neighbor bridges to keep per label.
+
+        Returns
+        -------
+        candidate_bridges : list of dict
+            Candidate bridge list.
+        """
+        channel = journal.info(
+            "isce3.unwrap.bridge_phase.bridgeConnectComponent"
+        )
+
+        channel.log("Finding candidate bridges for voting-based correction")
+
+        if not hasattr(self, "connDict") or not hasattr(self, "distMat"):
+            self.get_all_bridge()
+
+        all_edges = []
+
+        for key, conn in self.connDict.items():
+            label0_str, label1_str = key.split("_")
+            label0 = int(label0_str)
+            label1 = int(label1_str)
+
+            distance = float(conn["distance"])
+
+            if max_bridge_distance is not None and distance > max_bridge_distance:
+                continue
+
+            y0, x0 = conn[label0_str]
+            y1, x1 = conn[label1_str]
+
+            all_edges.append({
+                "first_endpoint_x": int(x0),
+                "first_endpoint_y": int(y0),
+                "second_endpoint_x": int(x1),
+                "second_endpoint_y": int(y1),
+                "distance": distance,
+                "label0": label0,
+                "label1": label1,
+            })
+
+        channel.log(f"Number of candidate bridges before neighbor filtering: {len(all_edges)}")
+
+        if max_num_neighbor is not None and max_num_neighbor > 0:
+            selected_keys = set()
+
+            for label_id in range(1, self.num_label + 1):
+                connected_edges = [
+                    edge for edge in all_edges
+                    if edge["label0"] == label_id or edge["label1"] == label_id
+                ]
+
+                connected_edges = sorted(
+                    connected_edges,
+                    key=lambda edge: edge["distance"]
+                )
+
+                for edge in connected_edges[:max_num_neighbor]:
+                    key = tuple(sorted((edge["label0"], edge["label1"])))
+                    selected_keys.add(key)
+
+            candidate_bridges = [
+                edge for edge in all_edges
+                if tuple(sorted((edge["label0"], edge["label1"]))) in selected_keys
+            ]
+        else:
+            candidate_bridges = all_edges
+
+        candidate_bridges = sorted(
+            candidate_bridges,
+            key=lambda edge: edge["distance"]
+        )
+
+        self.candidate_bridges = candidate_bridges
+
+        channel.log(f"Number of candidate bridges after filtering: {len(candidate_bridges)}")
+
+        return candidate_bridges
 
     def find_mst_bridge(self) -> List[Dict[str, Union[int, float]]]:
         """
@@ -458,6 +604,7 @@ class bridgeConnectComponent:
         radius: int = 50,
         ramp_type: Optional[str] = None,
         max_num_sample: int = 1e6,
+        phase_jump_constant=2 * np.pi
     ) -> np.ndarray:
         """
         Perform bridging to unwrap connected components in the phase data.
@@ -497,18 +644,360 @@ class bridgeConnectComponent:
             )
             label_mask0 = self.labelImg == bridge["label0"]
             label_mask1 = self.labelImg == bridge["label1"]
-            value0 = np.nanmedian(unw[np.logical_and(aoi_mask0, label_mask0)])
-            value1 = np.nanmedian(unw[np.logical_and(aoi_mask1, label_mask1)])
+
+            sample_mask0 = np.logical_and(aoi_mask0, label_mask0)
+            sample_mask1 = np.logical_and(aoi_mask1, label_mask1)
+
+            value0 = np.nanmedian(unw[sample_mask0])
+            value1 = np.nanmedian(unw[sample_mask1])
+
             diff_value = value1 - value0
-            num_jump = (np.abs(diff_value) + np.pi) // (2.0 * np.pi)
+            num_jump = int(np.round(np.abs(diff_value) / phase_jump_constant))
+
             if diff_value > 0:
                 num_jump *= -1
-            unw[label_mask1] += 2.0 * np.pi * num_jump
+            correction = phase_jump_constant * num_jump
+
+            unw[label_mask1] += correction
 
         if ramp_type is not None:
             unw += ramp
+        unw[self.labelImg == 0] = 0
 
         return unw
+
+
+
+    def unwrap_conn_comp_with_voting(
+        self,
+        unw: np.ndarray,
+        radius: int = 50,
+        ramp_type: Optional[str] = None,
+        max_num_sample: int = 1e6,
+        phase_jump_constant: float = 2.0 * np.pi,
+        max_bridge_distance: Optional[float] = None,
+        max_num_neighbor: int = 5,
+        residual_ratio_threshold: float = 0.35,
+        min_vote_confidence: float = 0.5,
+        min_num_votes: int = 1,
+    ) -> np.ndarray:
+        """
+        Correct connected components using multiple candidate bridges and voting.
+
+        This method estimates integer jump relations between many nearby label
+        pairs, then determines one global integer offset per label by voting.
+        Corrections are applied only once at the end, avoiding sequential
+        propagation of a bad bridge correction.
+
+        Parameters
+        ----------
+        unw : np.ndarray
+            2D unwrapped phase array.
+        radius : int
+            AOI radius around bridge endpoints.
+        ramp_type : str, optional
+            Ramp type to remove before estimating jumps.
+        max_num_sample : int
+            Maximum sample size for deramp.
+        phase_jump_constant : float
+            Phase jump constant.
+        max_bridge_distance : float, optional
+            Maximum allowed bridge distance for candidate edges.
+        max_num_neighbor : int
+            Maximum number of nearby candidate bridges per label.
+        residual_ratio_threshold : float
+            Reject bridge if residual / phase_jump_constant is larger than this.
+        min_vote_confidence : float
+            Minimum weighted vote confidence needed to accept an offset.
+        min_num_votes : int
+            Minimum number of valid votes needed to accept an offset.
+
+        Returns
+        -------
+        unw_out : np.ndarray
+            Corrected unwrapped phase.
+        """
+        channel = journal.info(
+            "isce3.unwrap.bridge_phase.bridgeConnectComponent"
+        )
+
+        channel.log("Starting unwrap_conn_comp_with_voting")
+
+        original_radius = radius
+        radius = int(min(radius, min(self.conncomp.shape) * 0.5))
+
+        channel.log(f"Input radius: {original_radius}")
+        channel.log(f"Effective radius: {radius}")
+        channel.log(f"phase_jump_constant: {phase_jump_constant}")
+        channel.log(f"max_num_neighbor: {max_num_neighbor}")
+        channel.log(f"max_bridge_distance: {max_bridge_distance}")
+        channel.log(f"residual_ratio_threshold: {residual_ratio_threshold}")
+        channel.log(f"min_vote_confidence: {min_vote_confidence}")
+        channel.log(f"min_num_votes: {min_num_votes}")
+
+        unw_work = np.array(unw, dtype=np.float32)
+
+        if ramp_type is not None:
+            channel.log(f"Estimating and removing {ramp_type} ramp")
+            ramp_mask = self.labelImg == self.label_ref
+
+            unw_work, ramp = deramp(
+                unw_work,
+                ramp_mask,
+                ramp_type,
+                max_num_sample,
+            )
+
+            channel.log(
+                f"Ramp removed. Ramp median={np.nanmedian(ramp):.4f}, "
+                f"ramp min={np.nanmin(ramp):.4f}, "
+                f"ramp max={np.nanmax(ramp):.4f}"
+            )
+        else:
+            ramp = None
+
+        candidate_bridges = self.find_candidate_bridges(
+            max_bridge_distance=max_bridge_distance,
+            max_num_neighbor=max_num_neighbor,
+        )
+
+        if len(candidate_bridges) == 0:
+            channel.log("No candidate bridges found. Returning input.")
+            return unw
+
+        edge_relations = []
+
+        for i, bridge in enumerate(candidate_bridges, start=1):
+            label0 = int(bridge["label0"])
+            label1 = int(bridge["label1"])
+
+            aoi_mask0, aoi_mask1 = self.get_bridge_endpoint_aoi_mask(
+                bridge,
+                radius=radius,
+            )
+
+            label_mask0 = self.labelImg == label0
+            label_mask1 = self.labelImg == label1
+
+            sample_mask0 = np.logical_and(aoi_mask0, label_mask0)
+            sample_mask1 = np.logical_and(aoi_mask1, label_mask1)
+
+            num_sample0 = np.count_nonzero(sample_mask0)
+            num_sample1 = np.count_nonzero(sample_mask1)
+
+            if num_sample0 == 0 or num_sample1 == 0:
+                # channel.log(
+                #     f"Candidate bridge {i} skipped: "
+                #     f"label {label0} - label {label1}, "
+                #     f"samples=({num_sample0}, {num_sample1})"
+                # )
+                continue
+
+            value0 = np.nanmedian(unw_work[sample_mask0])
+            value1 = np.nanmedian(unw_work[sample_mask1])
+
+            if not np.isfinite(value0) or not np.isfinite(value1):
+                channel.log(
+                    f"Candidate bridge {i} skipped because median is not finite."
+                )
+                continue
+
+            num_jump_01, correction, residual = estimate_integer_jump(
+                value0,
+                value1,
+                phase_jump_constant,
+            )
+
+            residual_ratio = residual / phase_jump_constant
+
+            if residual_ratio > residual_ratio_threshold:
+                # channel.log(
+                #     f"Candidate bridge {i} rejected: "
+                #     f"label {label0} - label {label1}, "
+                #     f"median0={value0:.4f}, median1={value1:.4f}, "
+                #     f"jump={num_jump_01}, residual_ratio={residual_ratio:.3f}"
+                # )
+                continue
+
+            sample_weight = min(num_sample0, num_sample1)
+            distance_weight = 1.0 / (float(bridge["distance"]) + 1.0)
+            residual_weight = 1.0 / (residual_ratio + 1.0e-3)
+
+            weight = sample_weight * distance_weight * residual_weight
+
+            edge_relations.append({
+                "label0": label0,
+                "label1": label1,
+                "num_jump_01": num_jump_01,
+                "residual_ratio": residual_ratio,
+                "weight": weight,
+                "distance": float(bridge["distance"]),
+                "num_sample0": int(num_sample0),
+                "num_sample1": int(num_sample1),
+                "median0": float(value0),
+                "median1": float(value1),
+            })
+
+            # channel.log(
+            #     f"Candidate bridge {i} accepted: "
+            #     f"label {label0} - label {label1}, "
+            #     f"median0={value0:.4f}, median1={value1:.4f}, "
+            #     f"jump01={num_jump_01}, "
+            #     f"residual_ratio={residual_ratio:.3f}, "
+            #     f"weight={weight:.3f}"
+            # )
+
+        if len(edge_relations) == 0:
+            channel.log("No reliable bridge relations found. Returning input.")
+            return unw
+
+        # Voting-based global offset estimation
+        #
+        # offset[label] means:
+        # corrected_phase = original_phase + offset[label] * phase_jump_constant
+        #
+        # For an edge label0 -> label1:
+        # offset[label1] - offset[label0] = num_jump_01
+        label_offsets = {int(self.label_ref): 0}
+        unresolved_labels = set(range(1, self.num_label + 1))
+        unresolved_labels.discard(int(self.label_ref))
+
+        channel.log(f"Reference label: {self.label_ref}")
+        channel.log(f"Initial unresolved labels: {sorted(unresolved_labels)}")
+
+        max_iter = self.num_label + 5
+
+        for iteration in range(max_iter):
+            if len(unresolved_labels) == 0:
+                break
+
+            newly_resolved = {}
+
+            for label_id in sorted(unresolved_labels):
+                votes = []
+
+                for edge in edge_relations:
+                    label0 = edge["label0"]
+                    label1 = edge["label1"]
+                    num_jump_01 = edge["num_jump_01"]
+                    weight = edge["weight"]
+
+                    if label_id == label1 and label0 in label_offsets:
+                        # offset1 = offset0 + jump01
+                        vote_offset = label_offsets[label0] + num_jump_01
+                        votes.append((vote_offset, weight))
+
+                    elif label_id == label0 and label1 in label_offsets:
+                        # offset0 = offset1 - jump01
+                        vote_offset = label_offsets[label1] - num_jump_01
+                        votes.append((vote_offset, weight))
+
+                if len(votes) < min_num_votes:
+                    continue
+
+                best_offset, confidence = weighted_integer_vote(votes)
+
+                if best_offset is None:
+                    continue
+
+                channel.log(
+                    f"Iteration {iteration + 1}: label {label_id}, "
+                    f"num_votes={len(votes)}, "
+                    f"best_offset={best_offset}, "
+                    f"confidence={confidence:.3f}"
+                )
+
+                if confidence >= min_vote_confidence:
+                    newly_resolved[label_id] = best_offset
+                else:
+                    channel.log(
+                        f"Label {label_id} not accepted due to low vote confidence."
+                    )
+
+            if len(newly_resolved) == 0:
+                channel.log(
+                    "No new labels resolved in this iteration. "
+                    "Stopping voting propagation."
+                )
+                break
+
+            for label_id, offset in newly_resolved.items():
+                label_offsets[label_id] = offset
+                unresolved_labels.discard(label_id)
+
+        channel.log(f"Resolved label offsets: {label_offsets}")
+
+        if len(unresolved_labels) > 0:
+            channel.log(
+                f"WARNING: Some labels were not resolved: {sorted(unresolved_labels)}"
+            )
+
+        # Apply all corrections once.
+        unw_out = np.array(unw_work, copy=True)
+
+        for label_id, offset in sorted(label_offsets.items()):
+            if label_id == self.label_ref:
+                continue
+
+            correction = offset * phase_jump_constant
+            label_mask = self.labelImg == label_id
+
+            channel.log(
+                f"Applying correction to label {label_id}: "
+                f"offset={offset}, correction={correction:.4f}, "
+                f"num_pixels={np.count_nonzero(label_mask)}"
+            )
+
+            unw_out[label_mask] += correction
+
+        if ramp_type is not None:
+            channel.log("Adding ramp back after voting-based correction")
+            unw_out += ramp
+
+        unw_out[self.labelImg == 0] = 0
+
+        channel.log("Finished unwrap_conn_comp_with_voting")
+
+        return unw_out
+
+
+def weighted_integer_vote(
+    votes: List[Tuple[int, float]],
+) -> Tuple[Optional[int], float]:
+    """
+    Choose the best integer offset from weighted votes.
+
+    Parameters
+    ----------
+    votes : list of tuple
+        Each item is (integer_offset, weight).
+
+    Returns
+    -------
+    best_offset : int or None
+        Selected integer offset.
+    confidence : float
+        Winning vote weight divided by total vote weight.
+    """
+    if len(votes) == 0:
+        return None, 0.0
+
+    vote_weight = {}
+
+    for offset, weight in votes:
+        offset = int(offset)
+        weight = float(weight)
+        vote_weight[offset] = vote_weight.get(offset, 0.0) + weight
+
+    total_weight = sum(vote_weight.values())
+
+    if total_weight <= 0:
+        return None, 0.0
+
+    best_offset = max(vote_weight, key=vote_weight.get)
+    confidence = vote_weight[best_offset] / total_weight
+
+    return best_offset, confidence
 
 
 def deramp(data,
@@ -619,3 +1108,42 @@ def deramp(data,
     ramp = ramp.reshape(dshape)
     data_out = data_out.reshape(dshape)
     return data_out, ramp
+
+
+def estimate_integer_jump(
+    value0: float,
+    value1: float,
+    phase_jump_constant: float,
+) -> Tuple[int, float, float]:
+    """
+    Estimate the integer jump needed to align value1 to value0.
+
+    The returned num_jump satisfies approximately:
+
+        value1 + num_jump * phase_jump_constant ~= value0
+
+    Parameters
+    ----------
+    value0 : float
+        Reference median value.
+    value1 : float
+        Target median value to be corrected.
+    phase_jump_constant : float
+        Phase jump constant, e.g., 2*pi, pi, or another user-defined value.
+
+    Returns
+    -------
+    num_jump : int
+        Integer jump applied to value1.
+    correction : float
+        Phase correction value.
+    residual : float
+        Absolute residual after correction.
+    """
+    diff_value = value1 - value0
+
+    num_jump = -int(np.round(diff_value / phase_jump_constant))
+    correction = phase_jump_constant * num_jump
+    residual = abs((value1 + correction) - value0)
+
+    return num_jump, correction, residual

@@ -1187,6 +1187,13 @@ def run(cfg: dict, runw_hdf5: str):
     bridge_erosion_size = filter_cfg['bridge_erosion_size']
     bridge_deramp_type = filter_cfg['bridge_ramp_type']
     bridge_ramp_maximum_pixel = filter_cfg['bridge_ramp_maximum_pixel']
+    iono_bridge_bool = filter_cfg['apply_iono_bridge']
+    bridge_method = filter_cfg['bridge_method']
+    max_num_neighbor = filter_cfg['max_num_neighbor']
+    max_bridge_distance = filter_cfg['max_bridge_distance']
+    residual_ratio_threshold = filter_cfg['residual_ratio_threshold']
+    min_vote_confidence = filter_cfg['min_vote_confidence']
+    min_num_votes = filter_cfg['min_num_votes']
 
     shared_bridge_mask_params = {
         'mask': {
@@ -1322,6 +1329,18 @@ def run(cfg: dict, runw_hdf5: str):
         outlier_threshold=filling_outlier_threshold,
         outlier_min_scale=filling_outlier_min_scale,
         mad_scale_factor=filling_outlier_mad_scale_factor,
+        apply_iono_bridge=iono_bridge_bool,
+        bridge_minimum_samples=bridge_minimum_samples,
+        bridge_radius=bridge_radius,
+        bridge_erosion_size=bridge_erosion_size,
+        bridge_deramp_type=bridge_deramp_type,
+        bridge_ramp_maximum_pixel=bridge_ramp_maximum_pixel,
+        bridge_method=bridge_method,
+        max_num_neighbor=max_num_neighbor,
+        max_bridge_distance=max_bridge_distance,
+        residual_ratio_threshold=residual_ratio_threshold,
+        min_vote_confidence=min_vote_confidence,
+        min_num_votes=min_num_votes,
         outputdir=os.path.join(iono_path, iono_method))
 
     water_mask_b_blk = None

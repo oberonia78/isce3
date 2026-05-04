@@ -15,10 +15,23 @@ from scipy.ndimage import (distance_transform_edt,
                            maximum_filter,
                            uniform_filter,
                            )
-
+from scipy.ndimage import (
+    gaussian_filter,
+    binary_dilation,
+    generate_binary_structure,
+    label,
+    median_filter,
+)
+from scipy.ndimage import (
+    binary_dilation,
+    binary_erosion,
+    generate_binary_structure,
+    label as nd_label,
+)
 import isce3
 from isce3.core.block_param_generator import block_param_generator
 from isce3.signal.filter_data import create_gaussian_kernel, get_raster_info
+from isce3.unwrap.bridge_phase import bridge_unwrapped_phase
 
 
 class IonosphereFilter:
@@ -37,6 +50,19 @@ class IonosphereFilter:
                  outlier_threshold=3.5,
                  outlier_min_scale=0.0,
                  mad_scale_factor=1.4826,
+                 apply_iono_bridge=True,
+                 bridge_minimum_samples=10,
+                 bridge_radius=30,
+                 bridge_erosion_size=5,
+                 bridge_deramp_type=None,
+                 bridge_ramp_maximum_pixel=1000,
+                 phase_jump_constant=2 * np.pi * 0.4997,
+                 bridge_method="voting",
+                 max_num_neighbor=30,
+                 max_bridge_distance=500,
+                 residual_ratio_threshold=0.35,
+                 min_vote_confidence=0.5,
+                 min_num_votes=1,
                  outputdir='.'):
         """Initialized IonosphereFilter with filter options
 
@@ -80,6 +106,22 @@ class IonosphereFilter:
         self.outlier_threshold = outlier_threshold
         self.outlier_min_scale = outlier_min_scale
         self.mad_scale_factor = mad_scale_factor
+
+        # bridge algorithm setting
+        self.bridge_minimum_samples = bridge_minimum_samples
+        self.bridge_radius = bridge_radius
+        self.bridge_erosion_size = bridge_erosion_size
+        self.bridge_deramp_type = bridge_deramp_type
+        self.bridge_ramp_maximum_pixel = bridge_ramp_maximum_pixel
+
+        self.apply_iono_bridge = apply_iono_bridge
+        self.phase_jump_constant = phase_jump_constant
+        self.bridge_method = bridge_method
+        self.max_num_neighbor = max_num_neighbor
+        self.max_bridge_distance = max_bridge_distance
+        self.residual_ratio_threshold = residual_ratio_threshold
+        self.min_vote_confidence = min_vote_confidence
+        self.min_num_votes = min_num_votes
 
     def low_pass_filter(
             self,
@@ -212,11 +254,14 @@ class IonosphereFilter:
                 orig_valid_mask = np.isfinite(orig_data_block)
                 orig_sig_block[~orig_valid_mask] = np.nan
 
-                # Critical fix:
                 # restore original valid pixels BEFORE guide generation,
                 # so valid support does not drift with iteration count.
                 data_block[orig_valid_mask] = orig_data_block[orig_valid_mask]
                 data_sig_block[orig_valid_mask] = orig_sig_block[orig_valid_mask]
+
+                if getattr(self, "apply_iono_bridge", False) and (iter_cnt > 0):
+                    bridge_mask = orig_valid_mask & np.isfinite(bridge_corrected)
+                    data_block[bridge_mask] = bridge_corrected[bridge_mask]
 
                 # Guide image for filling
                 guide_data = data_block.copy()
@@ -277,6 +322,70 @@ class IonosphereFilter:
                                 guide_data = nan_aware_gaussian(
                                     guide_data, sigma=guide_sigma)
 
+                output_std = f'{self.outputdir}/guide_{iter_cnt}'
+
+                write_array(
+                    output_std,
+                    guide_data,
+                    block_row=block_param.write_start_line,
+                    data_shape=guide_data.shape)
+                guide_data[invalid_mask] = np.nan
+
+                # if getattr(self, "apply_local_jump_correction", False):
+                apply_bridge_now = (
+                    getattr(self, "apply_iono_bridge", False)
+                    and iter_cnt == 0
+                )
+
+                if apply_bridge_now:
+                    print('phase_jump')
+                    guide_data[invalid_mask] = 0
+
+                    output_std = f'{self.outputdir}/before_iono_phase_jump_{iter_cnt}'
+
+                    write_array(
+                        output_std,
+                        guide_data,
+                        block_row=block_param.write_start_line,
+                        data_shape=data_block.shape)
+
+                    guide_data = bridge_unwrapped_phase(
+                        unw_phase=guide_data,
+                        radius=self.bridge_radius,
+                        min_num_pixel=self.bridge_minimum_samples,
+                        erosion_size=self.bridge_erosion_size,
+                        ramp_type=self.bridge_deramp_type,
+                        deramp_max_num_sample=self.bridge_ramp_maximum_pixel,
+                        phase_jump_constant=self.phase_jump_constant,
+                        bridge_method=self.bridge_method,
+                        max_num_neighbor=self.max_num_neighbor,
+                        max_bridge_distance=self.max_bridge_distance,
+                        residual_ratio_threshold=self.residual_ratio_threshold,
+                        min_vote_confidence=self.min_vote_confidence,
+                        min_num_votes=self.min_num_votes,
+                    )
+
+                    guide_data[guide_data==0] = np.nan
+
+                    bridge_corrected = guide_data.copy()
+                    output_std = f'{self.outputdir}/after_iono_phase_jump_{iter_cnt}'
+
+                    write_array(
+                        output_std,
+                        guide_data,
+                        block_row=block_param.write_start_line,
+                        data_shape=data_block.shape)
+
+                    guide_data[invalid_mask] = np.nan
+                    output_std = f'{self.outputdir}/after_iono_phase_jump2_{iter_cnt}'
+
+                    write_array(
+                        output_std,
+                        data_block,
+                        block_row=block_param.write_start_line,
+                        data_shape=data_block.shape)
+                    orig_valid_mask = np.isfinite(guide_data)
+
                 # Select fill method
                 if self.filling_method == "smoothed":
                     fill_method = fill_with_smoothed
@@ -288,6 +397,15 @@ class IonosphereFilter:
                     raise ValueError(
                         f"Unsupported filling_method: {self.filling_method}"
                     )
+
+                print('before gap')
+                output_std = f'{self.outputdir}/before_filled_data_{iter_cnt}'
+
+                write_array(
+                    output_std,
+                    guide_data,
+                    block_row=block_param.write_start_line,
+                    data_shape=guide_data.shape)
 
                 # Fill gaps
                 if self.filling_method == "distance":
@@ -315,8 +433,13 @@ class IonosphereFilter:
                     filled_data_sig = fill_method(sigma_fill_source)
 
                 # Restore original valid pixels again after filling
-                filled_data[orig_valid_mask] = orig_data_block[orig_valid_mask]
-                filled_data_sig[orig_valid_mask] = orig_sig_block[orig_valid_mask]
+                if getattr(self, "apply_local_jump_correction", False):
+                    filled_data[orig_valid_mask] = bridge_corrected[orig_valid_mask]
+                    filled_data_sig[orig_valid_mask] = orig_sig_block[orig_valid_mask]
+                else:
+                    filled_data[orig_valid_mask] = orig_data_block[orig_valid_mask]
+                    filled_data_sig[orig_valid_mask] = orig_sig_block[orig_valid_mask]
+
 
                 # Sigma fallback
                 bad_sig = ~np.isfinite(filled_data_sig) | (filled_data_sig <= 0)
@@ -329,6 +452,14 @@ class IonosphereFilter:
                     filled_data_sig[bad_sig] = replacement_sig
                 else:
                     filled_data_sig[:] = 1.0
+
+                output_std = f'{self.outputdir}/filled_data_{iter_cnt}'
+
+                write_array(
+                    output_std,
+                    filled_data,
+                    block_row=block_param.write_start_line,
+                    data_shape=filled_data.shape)
 
                 # Final filter for this iteration
                 filt_data, filt_data_sig = filter_data_with_sig(
