@@ -64,6 +64,9 @@
             <li>
                     <a class="function" href="#noise_pow_min_eigval_est">noise_pow_min_eigval_est</a>
             </li>
+            <li>
+                    <a class="function" href="#cpi_slice_gen">cpi_slice_gen</a>
+            </li>
     </ul>
 
 
@@ -292,7 +295,7 @@
 </span><span id="L-203"><a href="#L-203"><span class="linenos">203</span></a>    <span class="c1"># all CPIs/range lines. This will lead to noise power est closer to the</span>
 </span><span id="L-204"><a href="#L-204"><span class="linenos">204</span></a>    <span class="c1"># thermal noise. The assumption is that noise stat is stationary over</span>
 </span><span id="L-205"><a href="#L-205"><span class="linenos">205</span></a>    <span class="c1"># all range lines.</span>
-</span><span id="L-206"><a href="#L-206"><span class="linenos">206</span></a>    <span class="n">cpi_slices</span> <span class="o">=</span> <span class="n">_cpi_slice_gen</span><span class="p">(</span><span class="n">nrgls</span><span class="p">,</span> <span class="n">cpi</span><span class="p">)</span>
+</span><span id="L-206"><a href="#L-206"><span class="linenos">206</span></a>    <span class="n">cpi_slices</span> <span class="o">=</span> <span class="n">cpi_slice_gen</span><span class="p">(</span><span class="n">nrgls</span><span class="p">,</span> <span class="n">cpi</span><span class="p">)</span>
 </span><span id="L-207"><a href="#L-207"><span class="linenos">207</span></a>    <span class="n">pw_ns_all</span> <span class="o">=</span> <span class="p">[]</span>
 </span><span id="L-208"><a href="#L-208"><span class="linenos">208</span></a>    <span class="k">for</span> <span class="n">cpi_slice</span> <span class="ow">in</span> <span class="n">cpi_slices</span><span class="p">:</span>
 </span><span id="L-209"><a href="#L-209"><span class="linenos">209</span></a>        <span class="n">d</span> <span class="o">=</span> <span class="n">dset</span><span class="p">[</span><span class="n">cpi_slice</span><span class="p">]</span>
@@ -322,7 +325,7 @@
 </span><span id="L-233"><a href="#L-233"><span class="linenos">233</span></a>
 </span><span id="L-234"><a href="#L-234"><span class="linenos">234</span></a>
 </span><span id="L-235"><a href="#L-235"><span class="linenos">235</span></a><span class="c1"># helper function</span>
-</span><span id="L-236"><a href="#L-236"><span class="linenos">236</span></a><span class="k">def</span><span class="w"> </span><span class="nf">_cpi_slice_gen</span><span class="p">(</span><span class="n">nrgl</span><span class="p">,</span> <span class="n">cpi</span><span class="p">):</span>
+</span><span id="L-236"><a href="#L-236"><span class="linenos">236</span></a><span class="k">def</span><span class="w"> </span><span class="nf">cpi_slice_gen</span><span class="p">(</span><span class="n">nrgl</span><span class="p">,</span> <span class="n">cpi</span><span class="p">):</span>
 </span><span id="L-237"><a href="#L-237"><span class="linenos">237</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Helper function for CPI slice generator</span>
 </span><span id="L-238"><a href="#L-238"><span class="linenos">238</span></a>
 </span><span id="L-239"><a href="#L-239"><span class="linenos">239</span></a><span class="sd">    Parameters</span>
@@ -683,7 +686,7 @@ Anlyses,", JPL Report, Rev A, April 2024.&#160;<a href="#fnref-2" class="footnot
 </span><span id="noise_pow_min_eigval_est-204"><a href="#noise_pow_min_eigval_est-204"><span class="linenos">204</span></a>    <span class="c1"># all CPIs/range lines. This will lead to noise power est closer to the</span>
 </span><span id="noise_pow_min_eigval_est-205"><a href="#noise_pow_min_eigval_est-205"><span class="linenos">205</span></a>    <span class="c1"># thermal noise. The assumption is that noise stat is stationary over</span>
 </span><span id="noise_pow_min_eigval_est-206"><a href="#noise_pow_min_eigval_est-206"><span class="linenos">206</span></a>    <span class="c1"># all range lines.</span>
-</span><span id="noise_pow_min_eigval_est-207"><a href="#noise_pow_min_eigval_est-207"><span class="linenos">207</span></a>    <span class="n">cpi_slices</span> <span class="o">=</span> <span class="n">_cpi_slice_gen</span><span class="p">(</span><span class="n">nrgls</span><span class="p">,</span> <span class="n">cpi</span><span class="p">)</span>
+</span><span id="noise_pow_min_eigval_est-207"><a href="#noise_pow_min_eigval_est-207"><span class="linenos">207</span></a>    <span class="n">cpi_slices</span> <span class="o">=</span> <span class="n">cpi_slice_gen</span><span class="p">(</span><span class="n">nrgls</span><span class="p">,</span> <span class="n">cpi</span><span class="p">)</span>
 </span><span id="noise_pow_min_eigval_est-208"><a href="#noise_pow_min_eigval_est-208"><span class="linenos">208</span></a>    <span class="n">pw_ns_all</span> <span class="o">=</span> <span class="p">[]</span>
 </span><span id="noise_pow_min_eigval_est-209"><a href="#noise_pow_min_eigval_est-209"><span class="linenos">209</span></a>    <span class="k">for</span> <span class="n">cpi_slice</span> <span class="ow">in</span> <span class="n">cpi_slices</span><span class="p">:</span>
 </span><span id="noise_pow_min_eigval_est-210"><a href="#noise_pow_min_eigval_est-210"><span class="linenos">210</span></a>        <span class="n">d</span> <span class="o">=</span> <span class="n">dset</span><span class="p">[</span><span class="n">cpi_slice</span><span class="p">]</span>
@@ -770,6 +773,67 @@ Anlyses,", JPL Report, Rev A, April 2024.&#160;<a href="#fnref-2" class="footnot
 </li>
 </ol>
 </div>
+</div>
+
+
+                </section>
+                <section id="cpi_slice_gen">
+                            <input id="cpi_slice_gen-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">cpi_slice_gen</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">nrgl</span>, </span><span class="param"><span class="n">cpi</span></span><span class="return-annotation">):</span></span>
+
+                <label class="view-source-button" for="cpi_slice_gen-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#cpi_slice_gen"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="cpi_slice_gen-237"><a href="#cpi_slice_gen-237"><span class="linenos">237</span></a><span class="k">def</span><span class="w"> </span><span class="nf">cpi_slice_gen</span><span class="p">(</span><span class="n">nrgl</span><span class="p">,</span> <span class="n">cpi</span><span class="p">):</span>
+</span><span id="cpi_slice_gen-238"><a href="#cpi_slice_gen-238"><span class="linenos">238</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Helper function for CPI slice generator</span>
+</span><span id="cpi_slice_gen-239"><a href="#cpi_slice_gen-239"><span class="linenos">239</span></a>
+</span><span id="cpi_slice_gen-240"><a href="#cpi_slice_gen-240"><span class="linenos">240</span></a><span class="sd">    Parameters</span>
+</span><span id="cpi_slice_gen-241"><a href="#cpi_slice_gen-241"><span class="linenos">241</span></a><span class="sd">    ----------</span>
+</span><span id="cpi_slice_gen-242"><a href="#cpi_slice_gen-242"><span class="linenos">242</span></a><span class="sd">    nrgl : int</span>
+</span><span id="cpi_slice_gen-243"><a href="#cpi_slice_gen-243"><span class="linenos">243</span></a><span class="sd">        Total number of range lines</span>
+</span><span id="cpi_slice_gen-244"><a href="#cpi_slice_gen-244"><span class="linenos">244</span></a><span class="sd">    cpi : int</span>
+</span><span id="cpi_slice_gen-245"><a href="#cpi_slice_gen-245"><span class="linenos">245</span></a><span class="sd">        The number of lines within a cpi.</span>
+</span><span id="cpi_slice_gen-246"><a href="#cpi_slice_gen-246"><span class="linenos">246</span></a><span class="sd">        It is assumed that cpi is not larger than nrgl!</span>
+</span><span id="cpi_slice_gen-247"><a href="#cpi_slice_gen-247"><span class="linenos">247</span></a>
+</span><span id="cpi_slice_gen-248"><a href="#cpi_slice_gen-248"><span class="linenos">248</span></a><span class="sd">    Yields</span>
+</span><span id="cpi_slice_gen-249"><a href="#cpi_slice_gen-249"><span class="linenos">249</span></a><span class="sd">    ------</span>
+</span><span id="cpi_slice_gen-250"><a href="#cpi_slice_gen-250"><span class="linenos">250</span></a><span class="sd">    slice</span>
+</span><span id="cpi_slice_gen-251"><a href="#cpi_slice_gen-251"><span class="linenos">251</span></a><span class="sd">        Slice of (start, stop) range lines.</span>
+</span><span id="cpi_slice_gen-252"><a href="#cpi_slice_gen-252"><span class="linenos">252</span></a>
+</span><span id="cpi_slice_gen-253"><a href="#cpi_slice_gen-253"><span class="linenos">253</span></a><span class="sd">    Notes</span>
+</span><span id="cpi_slice_gen-254"><a href="#cpi_slice_gen-254"><span class="linenos">254</span></a><span class="sd">    -----</span>
+</span><span id="cpi_slice_gen-255"><a href="#cpi_slice_gen-255"><span class="linenos">255</span></a><span class="sd">    The output guarantees fixed-length CPI per CPI block.</span>
+</span><span id="cpi_slice_gen-256"><a href="#cpi_slice_gen-256"><span class="linenos">256</span></a>
+</span><span id="cpi_slice_gen-257"><a href="#cpi_slice_gen-257"><span class="linenos">257</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="cpi_slice_gen-258"><a href="#cpi_slice_gen-258"><span class="linenos">258</span></a>    <span class="k">for</span> <span class="n">i_start</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">nrgl</span><span class="p">,</span> <span class="n">cpi</span><span class="p">):</span>
+</span><span id="cpi_slice_gen-259"><a href="#cpi_slice_gen-259"><span class="linenos">259</span></a>        <span class="n">i_stop</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">i_start</span> <span class="o">+</span> <span class="n">cpi</span><span class="p">,</span> <span class="n">nrgl</span><span class="p">)</span>
+</span><span id="cpi_slice_gen-260"><a href="#cpi_slice_gen-260"><span class="linenos">260</span></a>        <span class="n">i_start</span> <span class="o">=</span> <span class="n">i_stop</span> <span class="o">-</span> <span class="n">cpi</span>
+</span><span id="cpi_slice_gen-261"><a href="#cpi_slice_gen-261"><span class="linenos">261</span></a>        <span class="k">yield</span> <span class="nb">slice</span><span class="p">(</span><span class="n">i_start</span><span class="p">,</span> <span class="n">i_stop</span><span class="p">)</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Helper function for CPI slice generator</p>
+
+<h2 id="parameters">Parameters</h2>
+
+<p>nrgl : int
+    Total number of range lines
+cpi : int
+    The number of lines within a cpi.
+    It is assumed that cpi is not larger than nrgl!</p>
+
+<h2 id="yields">Yields</h2>
+
+<p>slice
+    Slice of (start, stop) range lines.</p>
+
+<h2 id="notes">Notes</h2>
+
+<p>The output guarantees fixed-length CPI per CPI block.</p>
 </div>
 
 
