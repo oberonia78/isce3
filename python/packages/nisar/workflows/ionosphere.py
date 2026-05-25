@@ -1182,7 +1182,7 @@ def run(cfg: dict, runw_hdf5: str):
 
     # Run InSAR for sub-band SLCs (split-main-bands) or
     # for main and side bands for iono_freq_pols (main-side-bands)
-    # insar_ionosphere_pair(iono_insar_cfg, runw_hdf5)
+    insar_ionosphere_pair(iono_insar_cfg, runw_hdf5)
 
     t_all = time.time()
     # Define methods to use subband or sideband
@@ -1950,7 +1950,7 @@ def run(cfg: dict, runw_hdf5: str):
                     existing_range = None
                     new_range = None
 
-                with HDF5OptimizedReader(name=iono_output_runw, mode='a',
+                with HDF5OptimizedReader(name=iono_output, mode='a',
                                          libver='latest') as dst_h5:
                     update_hdf5_mask_bit24_block(
                         dst_h5,
