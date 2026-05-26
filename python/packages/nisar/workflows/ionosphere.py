@@ -1950,7 +1950,7 @@ def run(cfg: dict, runw_hdf5: str):
                     existing_range = None
                     new_range = None
 
-                with HDF5OptimizedReader(name=iono_output, mode='a',
+                with HDF5OptimizedReader(name=runw_path_insar, mode='a',
                                          libver='latest') as dst_h5:
                     update_hdf5_mask_bit24_block(
                         dst_h5,
