@@ -132,9 +132,7 @@ class GOFFWriter(ROFFWriter, L2InSARWriter):
                  " bits 16–23 represent bitwise anomaly flags for the reference RSLC,"
                  " with each bit corresponding to a specific anomaly condition."
                  " A value of 0 in the anomaly bits indicates that no anomaly is detected in the corresponding RSLC."
-                 " Bit 24 indicates a bit mask for ionospheric phase mask used during filtering of ionospheric phase."
-                 " This ionospheric phase mask indicates pixels which were masked out and filled with interpolated data."
-                 " Bits 25–31 are reserved for future use"),
+                 " Bits 24–31 are reserved for future use"),
                 grid_mapping=grids_val,
                 xds=xds,
                 yds=yds,
