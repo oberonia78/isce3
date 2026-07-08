@@ -345,6 +345,30 @@ runconfig:
                     # During deramping, uniform sampling is applied
                     # when number of samples is larger than maximum pixel
                     bridge_ramp_maximum_pixel: 1e6
+                qfsp_correction:
+                    # Apply qFSP phase-slip artifact correction.
+                    enabled: True
+                    # Polynomial order used to estimate the smooth background
+                    # phase from non-anomaly pixels.
+                    # 0: constant, 1: linear, 2: quadratic.
+                    background_order: 2
+                    # Minimum fraction of rows that must contain usable artifact
+                    # samples to estimate a qFSP artifact template.
+                    # If the valid artifact support is smaller than this value,
+                    # correction may be skipped or considered unreliable.
+                    min_fraction_rows: 0.05
+                    # Minimum width, in pixels, of an artifact group to correct.
+                    # Groups narrower than this value are ignored.
+                    min_group_width: 1
+                    # Window size, in pixels, used to smooth the estimated qFSP
+                    # artifact template. Use an odd integer when possible.
+                    template_smooth_win: 3
+                    # Number of pixels to shrink from the inner artifact region
+                    # before estimating/applying the correction.
+                    inner_shrink: 2
+                    # Number of pixels used to feather the correction outside
+                    # the artifact boundary.
+                    outer_feather: 10
 
             troposphere_delay:
                 # Boolean flag to activate (True) troposphere delay computation
