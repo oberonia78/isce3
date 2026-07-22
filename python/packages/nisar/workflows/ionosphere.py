@@ -766,8 +766,13 @@ def insar_ionosphere_pair(original_cfg, runw_hdf5):
     if unwrap_mask_type == 'water':
         # Either set to a default value or delete the key entirely.
         prep_wrapped_phase_cfg['enabled'] = True
-    if prep_wrapped_phase_cfg['enabled'] is True and \
-       unwrap_mask_type == 'subswath_mask':
+
+    subswath_mask_enabled = False
+
+    if (
+        prep_wrapped_phase_cfg["enabled"]
+        and unwrap_mask_type == "subswath_mask"
+    ):
         subswath_mask_enabled = True
 
     if iono_method in ['split_main_band', 'main_diff_low_high_subband']:
@@ -1185,7 +1190,6 @@ def run(cfg: dict, runw_hdf5: str):
         rg_looks = unwrap_rg_looks
         az_looks = unwrap_az_looks
 
-    iono_qfsp_correction_flag = True  # iono_args['qFSP_correction']
     ref_qfsp_flag = check_qfsp_flag(cfg["input_file_group"]["reference_rslc_file"])
     sec_qfsp_flag = check_qfsp_flag(cfg["input_file_group"]["secondary_rslc_file"])
     if iono_qfsp_correction_flag:
@@ -1901,17 +1905,28 @@ def run(cfg: dict, runw_hdf5: str):
                     sec_has_anomaly_side = parsed_mask_side["sec_has_anomaly"]
                     ref_has_anomaly_side = parsed_mask_side["ref_has_anomaly"]
 
-                    sec_has_anomaly_main_deci = decimate_freq_a_array(
-                        main_slant,
-                        side_slant,
-                        sec_has_anomaly_main)
-                    ref_has_anomaly_main_deci = decimate_freq_a_array(
-                        main_slant,
-                        side_slant,
-                        ref_has_anomaly_main)
-                    mask_anomaly_array = np.asarray(
-                        sec_has_anomaly_main_deci | ref_has_anomaly_main_deci |
-                        sec_has_anomaly_side | ref_has_anomaly_side, dtype=bool
+                    sec_has_anomaly_main_deci = np.asarray(
+                        decimate_freq_a_array(
+                            main_slant,
+                            side_slant,
+                            sec_has_anomaly_main.astype(np.uint8),
+                        ),
+                        dtype=bool,
+                    )
+
+                    ref_has_anomaly_main_deci = np.asarray(
+                        decimate_freq_a_array(
+                            main_slant,
+                            side_slant,
+                            ref_has_anomaly_main.astype(np.uint8),
+                        ),
+                        dtype=bool,
+                    )
+                    mask_anomaly_array = (
+                        sec_has_anomaly_main_deci
+                        | ref_has_anomaly_main_deci
+                        | np.asarray(sec_has_anomaly_side, dtype=bool)
+                        | np.asarray(ref_has_anomaly_side, dtype=bool)
                     )
                 else:
                     diff_phase = None
@@ -1939,8 +1954,20 @@ def run(cfg: dict, runw_hdf5: str):
                     # If mask_array already exists, combine it with non-anomaly pixels.
                     qfsp_background_mask = (
                         available_mask
-                        & (~mask_anomaly_array)
                     )
+                    n_background = np.count_nonzero(qfsp_background_mask)
+                    n_artifact = np.count_nonzero(mask_anomaly_array)
+
+                    if n_artifact == 0:
+                        info_channel.log(
+                            f"No qFSP anomaly pixels in block {block}; "
+                            "skipping qFSP correction."
+                        )
+                    elif n_background < max(100, qfsp_background_order + 1):
+                        info_channel.log(
+                            f"Insufficient qFSP background support in block {block}: "
+                            f"{n_background} pixels. Skipping correction."
+                        )
 
                     output = correct_qfsp_phase_artifact(
                         diff_phase,
@@ -1956,7 +1983,49 @@ def run(cfg: dict, runw_hdf5: str):
                     )
 
                     diff_phase = output["corrected_phase"]
+                    write_array(
+                        qfsp_corrected_path,
+                        diff_phase,
+                        data_type=gdal.GDT_Float32,
+                        block_row=row_start,
+                        data_shape=[rows_output, cols_output])
 
+                    write_array(
+                        os.path.join(qfsp_out_dir, "qFSP_artifact_2d"),
+                        output["artifact_2d"],
+                        data_type=gdal.GDT_Float32,
+                        block_row=row_start,
+                        data_shape=[rows_output, cols_output])
+                    print("background", np.unique(output["background"]))
+                    write_array(
+                        os.path.join(qfsp_out_dir, "qFSP_background"),
+                        output["background"],
+                        data_type=gdal.GDT_Float32,
+                        block_row=row_start,
+                        data_shape=[rows_output, cols_output])
+                    print("qFSP_background_mask", np.unique(qfsp_background_mask))
+
+                    write_array(
+                        os.path.join(qfsp_out_dir, "qFSP_background_mask"),
+                        qfsp_background_mask.astype(np.uint8),
+                        data_type=gdal.GDT_Byte,
+                        block_row=row_start,
+                        data_shape=[rows_output, cols_output])
+
+                    # write_array(
+                    #     os.path.join(qfsp_out_dir, "qFSP_template_mask"),
+                    #     template_estimation_mask.astype(np.uint8),
+                    #     data_type=gdal.GDT_Byte,
+                    #     block_row=row_start,
+                    #     data_shape=[rows_output, cols_output])
+                    print("qFSP_anomaly_mask", np.unique(mask_anomaly_array))
+
+                    write_array(
+                        os.path.join(qfsp_out_dir, "qFSP_anomaly_mask"),
+                        mask_anomaly_array.astype(np.uint8),
+                        data_type=gdal.GDT_Byte,
+                        block_row=row_start,
+                        data_shape=[rows_output, cols_output])
                     if iono_method == "main_diff_low_high_subband":
                         diff_subband_image = diff_phase
 

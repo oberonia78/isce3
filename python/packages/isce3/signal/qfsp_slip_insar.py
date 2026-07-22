@@ -232,6 +232,7 @@ def correct_qfsp_phase_artifact(
     template_estimation_mask = (
         artifact_mask
         & valid_phase
+        & fit_background_mask
     )
 
     background = _fit_2d_polynomial_surface(
