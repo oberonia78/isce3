@@ -850,7 +850,7 @@ qfsp_correction_options:
     # Boolean flag to enable/disable qFSP phase-slip artifact correction
     enabled: bool(required=False)
     # Polynomial order used to estimate the background phase
-    background_order: int(min=0, required=False)
+    background_order: int(min=0, max=3, required=False)
     # Minimum fraction of valid rows required for estimating the qFSP artifact
     min_fraction_rows: num(min=0.0, max=1.0, required=False)
     # Minimum width, in pixels, of a qFSP artifact group

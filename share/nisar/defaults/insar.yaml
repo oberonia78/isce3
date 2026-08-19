@@ -347,7 +347,7 @@ runconfig:
                     bridge_ramp_maximum_pixel: 1e6
                 qfsp_correction:
                     # Apply qFSP phase-slip artifact correction.
-                    enabled: True
+                    enabled: False
                     # Polynomial order used to estimate the smooth background
                     # phase from non-anomaly pixels.
                     # 0: constant, 1: linear, 2: quadratic.
