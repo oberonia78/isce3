@@ -4,16 +4,81 @@ from scipy.ndimage import distance_transform_edt
 
 
 def check_qfsp_flag(slc_path):
-    qFSP_path = '/science/LSAR/identification/hasInputDataException/'
-    with h5py.File(slc_path) as src:
-        qfsp_flag = src[qFSP_path][()]
-    return qfsp_flag
+    """
+    Check whether an RSLC reports an input-data exception.
+
+    Older RSLC products may not contain the
+    `hasInputDataException` dataset. Such products are treated as not
+    reporting an input-data exception.
+
+    Parameters
+    ----------
+    slc_path : path-like
+        Path to the input RSLC HDF5 product.
+
+    Returns
+    -------
+    bool
+        ``True`` if the product reports an input-data exception; otherwise
+        ``False``.
+
+    Warns
+    -----
+    RuntimeWarning
+        If the RSLC does not contain the expected dataset.
+    """
+    qfsp_path = (
+        "/science/LSAR/identification/"
+        "hasInputDataException"
+    )
+
+    with h5py.File(slc_path, "r") as src:
+        if qfsp_path not in src:
+            warnings.warn(
+                f"{slc_path} does not contain {qfsp_path}; "
+                "assuming no input-data exception.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return False
+
+        value = src[qfsp_path][()]
+
+    return bool(np.asarray(value).item())
 
 
 def _fit_2d_polynomial_surface(data, valid_mask, order=2):
     """
-    Fit a global 2D polynomial surface to data using valid_mask pixels only.
+    Fit a two-dimensional polynomial surface to valid data samples.
+
+    The pixel coordinates are normalized using the mean and standard
+    deviation of the valid samples before the least-squares fit. Polynomial
+    terms up to cubic order are supported.
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        Two-dimensional array containing the values to fit.
+    valid_mask : numpy.ndarray
+        Boolean array with the same shape as `data`. Pixels marked as
+        ``True`` are eligible for use in the polynomial fit. Non-finite
+        values in `data` are excluded regardless of this mask.
+    order : int, optional
+        Polynomial order. Supported values are 0 through 3, corresponding
+        to constant, linear, quadratic, and cubic surfaces, respectively.
+        Defaults to 2.
+
+    Returns
+    -------
+    surface : numpy.ndarray
+        Two-dimensional fitted polynomial surface with the same shape as
+        `data`.
     """
+    if not isinstance(order, (int, np.integer)) or isinstance(order, bool):
+        raise TypeError("order must be an integer")
+
+    if not 0 <= order <= 3:
+        raise ValueError("order must be between 0 and 3")
     nrows, ncols = data.shape
     yy, xx = np.indices((nrows, ncols))
 
@@ -65,7 +130,32 @@ def _fit_2d_polynomial_surface(data, valid_mask, order=2):
 
 def _find_column_groups(artifact_mask, min_fraction_rows=0.3, min_group_width=2):
     """
-    Find contiguous column groups affected in many rows based on artifact_mask.
+    Find contiguous column groups affected by an artifact.
+
+    A column is considered affected when the fraction of artifact pixels
+    along its rows is greater than or equal to `min_fraction_rows`.
+    Contiguous affected columns are grouped, and groups narrower than
+    `min_group_width` are discarded.
+
+    Parameters
+    ----------
+    artifact_mask : numpy.ndarray
+        Two-dimensional boolean array in which ``True`` indicates an
+        artifact-affected pixel.
+    min_fraction_rows : float, optional
+        Minimum fraction of rows containing artifact pixels required for
+        a column to be considered affected. Expected to be between 0 and 1.
+        Defaults to 0.3.
+    min_group_width : int, optional
+        Minimum number of contiguous affected columns required to retain
+        a group. Defaults to 2.
+
+    Returns
+    -------
+    groups : list of tuple of int
+        List of ``(start, end)`` column-index pairs. Each interval follows
+        Python slicing convention: `start` is inclusive and `end` is
+        exclusive.
     """
     nrows, ncols = artifact_mask.shape
     frac = artifact_mask.sum(axis=0) / max(nrows, 1)
@@ -95,7 +185,26 @@ def _find_column_groups(artifact_mask, min_fraction_rows=0.3, min_group_width=2)
 
 def _moving_average_1d(x, win):
     """
-    NaN-aware moving average for 1D array.
+    Apply a NaN-aware moving average to a one-dimensional array.
+
+    The moving average is computed using only finite samples within each
+    window. Non-finite samples do not contribute to either the sum or the
+    number of samples used to calculate the average.
+
+    Parameters
+    ----------
+    x : array_like
+        One-dimensional input data.
+    win : int
+        Size of the moving-average window. If `win` is less than or equal
+        to 1, a copy of the input array is returned without smoothing.
+
+    Returns
+    -------
+    out : numpy.ndarray
+        Smoothed floating-point array with the same shape as `x`. Output
+        samples are NaN where the corresponding window contains no finite
+        input samples.
     """
     x = np.asarray(x, dtype=float)
     if win <= 1:
