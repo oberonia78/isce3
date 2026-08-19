@@ -1,5 +1,7 @@
 import numpy as np
 import h5py
+import warnings
+
 from scipy.ndimage import distance_transform_edt
 
 
@@ -248,37 +250,35 @@ def make_feather_weight(
     weight : 2D float array
         Smooth weight from 0 to 1.
     """
-
     artifact_mask = np.asarray(artifact_mask, dtype=bool)
 
-    # Distance inside artifact region
-    dist_inside = distance_transform_edt(artifact_mask)
+    if inner_shrink < 0:
+        raise ValueError("inner_shrink must be non-negative")
 
-    # Distance outside artifact region
+    if outer_feather < 0:
+        raise ValueError("outer_feather must be non-negative")
+
+    if inner_shrink == 0 and outer_feather == 0:
+        return artifact_mask.astype(np.float32)
+
+    dist_inside = distance_transform_edt(artifact_mask)
     dist_outside = distance_transform_edt(~artifact_mask)
 
-    weight = np.zeros(artifact_mask.shape, dtype=np.float32)
+    # Positive inside the artifact and negative outside.
+    signed_distance = dist_inside - dist_outside
 
-    # Inside artifact area: mostly full correction
-    inside = artifact_mask
-    weight[inside] = 1.0
+    transition_width = inner_shrink + outer_feather
 
-    # Taper near inner boundary
-    if inner_shrink > 0:
-        inner_edge = inside & (dist_inside <= inner_shrink)
-        weight[inner_edge] = dist_inside[inner_edge] / float(inner_shrink)
+    weight = (
+        signed_distance + outer_feather
+    ) / float(transition_width)
 
-    # Outside artifact area: apply small tapered correction into neighborhood
-    if outer_feather > 0:
-        outside_feather = (~artifact_mask) & (dist_outside <= outer_feather)
-        weight[outside_feather] = (
-            1.0 - dist_outside[outside_feather] / float(outer_feather)
-        )
+    weight = np.clip(weight, 0.0, 1.0)
 
-    # Smoothstep curve: smoother transition than linear
+    # Smoothstep transition.
     weight = weight * weight * (3.0 - 2.0 * weight)
 
-    return weight
+    return weight.astype(np.float32)
 
 
 def correct_qfsp_phase_artifact(
