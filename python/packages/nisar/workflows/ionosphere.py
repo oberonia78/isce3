@@ -1190,9 +1190,13 @@ def run(cfg: dict, runw_hdf5: str):
         rg_looks = unwrap_rg_looks
         az_looks = unwrap_az_looks
 
-    ref_qfsp_flag = check_qfsp_flag(cfg["input_file_group"]["reference_rslc_file"])
-    sec_qfsp_flag = check_qfsp_flag(cfg["input_file_group"]["secondary_rslc_file"])
     if iono_qfsp_correction_flag:
+        ref_qfsp_flag = check_qfsp_flag(
+            cfg["input_file_group"]["reference_rslc_file"]
+        )
+        sec_qfsp_flag = check_qfsp_flag(
+            cfg["input_file_group"]["secondary_rslc_file"]
+        )
         if not ref_qfsp_flag and not sec_qfsp_flag:
             info_channel.log(
                 "qFSP correction is enabled but none of input "
@@ -1200,8 +1204,12 @@ def run(cfg: dict, runw_hdf5: str):
             )
             iono_qfsp_correction_flag = False
         else:
-            info_channel.log(f"reference qFSP: {ref_qfsp_flag}")
-            info_channel.log(f"secondary qFSP: {sec_qfsp_flag}")
+            info_channel.log(
+                f"Reference input-data exception flag: {ref_qfsp_flag}"
+            )
+            info_channel.log(
+                f"Secondary input-data exception flag: {sec_qfsp_flag}"
+            )
     need_insar_mask = iono_qfsp_correction_flag or ("subswath_mask" in mask_type)
 
     # set paths for ionosphere and split spectrum
@@ -1963,43 +1971,45 @@ def run(cfg: dict, runw_hdf5: str):
                             f"No qFSP anomaly pixels in block {block}; "
                             "skipping qFSP correction."
                         )
+                        apply_qfsp_correction = False
                     elif n_background < max(100, qfsp_background_order + 1):
                         info_channel.log(
                             f"Insufficient qFSP background support in block {block}: "
                             f"{n_background} pixels. Skipping correction."
                         )
+                        apply_qfsp_correction = False
+                    if apply_qfsp_correction:
+                        output = correct_qfsp_phase_artifact(
+                            diff_phase,
+                            fit_background_mask=qfsp_background_mask,
+                            artifact_mask=mask_anomaly_array,
+                            background_order=qfsp_background_order,
+                            min_fraction_rows=qfsp_min_fraction_rows,
+                            min_group_width=qfsp_min_group_width,
+                            template_smooth_win=qfsp_template_smooth_win,
+                            inner_shrink=qfsp_inner_shrink,
+                            outer_feather=qfsp_outer_feather,
+                            fill_value=np.nan,
+                        )
 
-                    output = correct_qfsp_phase_artifact(
-                        diff_phase,
-                        fit_background_mask=qfsp_background_mask,
-                        artifact_mask=mask_anomaly_array,
-                        background_order=qfsp_background_order,
-                        min_fraction_rows=qfsp_min_fraction_rows,
-                        min_group_width=qfsp_min_group_width,
-                        template_smooth_win=qfsp_template_smooth_win,
-                        inner_shrink=qfsp_inner_shrink,
-                        outer_feather=qfsp_outer_feather,
-                        fill_value=np.nan,
-                    )
+                        write_array(
+                            os.path.join(qfsp_out_dir, "qFSP_artifact_2d"),
+                            output["artifact_2d"],
+                            data_type=gdal.GDT_Float32,
+                            block_row=row_start,
+                            data_shape=[rows_output, cols_output])
+                        print("background", np.unique(output["background"]))
+                        write_array(
+                            os.path.join(qfsp_out_dir, "qFSP_background"),
+                            output["background"],
+                            data_type=gdal.GDT_Float32,
+                            block_row=row_start,
+                            data_shape=[rows_output, cols_output])
 
                     diff_phase = output["corrected_phase"]
                     write_array(
                         qfsp_corrected_path,
                         diff_phase,
-                        data_type=gdal.GDT_Float32,
-                        block_row=row_start,
-                        data_shape=[rows_output, cols_output])
-
-                    write_array(
-                        os.path.join(qfsp_out_dir, "qFSP_artifact_2d"),
-                        output["artifact_2d"],
-                        data_type=gdal.GDT_Float32,
-                        block_row=row_start,
-                        data_shape=[rows_output, cols_output])
-                    print("background", np.unique(output["background"]))
-                    write_array(
-                        os.path.join(qfsp_out_dir, "qFSP_background"),
-                        output["background"],
                         data_type=gdal.GDT_Float32,
                         block_row=row_start,
                         data_shape=[rows_output, cols_output])
@@ -2011,13 +2021,6 @@ def run(cfg: dict, runw_hdf5: str):
                         data_type=gdal.GDT_Byte,
                         block_row=row_start,
                         data_shape=[rows_output, cols_output])
-
-                    # write_array(
-                    #     os.path.join(qfsp_out_dir, "qFSP_template_mask"),
-                    #     template_estimation_mask.astype(np.uint8),
-                    #     data_type=gdal.GDT_Byte,
-                    #     block_row=row_start,
-                    #     data_shape=[rows_output, cols_output])
                     print("qFSP_anomaly_mask", np.unique(mask_anomaly_array))
 
                     write_array(
