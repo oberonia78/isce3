@@ -1179,12 +1179,12 @@ def run(cfg: dict, runw_hdf5: str):
 
     iono_qfsp_correction_flag = qfsp_cfg.get("enabled", False)
 
-    qfsp_background_order = qfsp_cfg.get("background_order", 2)
-    qfsp_min_fraction_rows = qfsp_cfg.get("min_fraction_rows", 0.05)
-    qfsp_min_group_width = qfsp_cfg.get("min_group_width", 1)
-    qfsp_template_smooth_win = qfsp_cfg.get("template_smooth_win", 3)
-    qfsp_inner_shrink = qfsp_cfg.get("inner_shrink", 2)
-    qfsp_outer_feather = qfsp_cfg.get("outer_feather", 10)
+    qfsp_background_order = qfsp_cfg["background_order"]
+    qfsp_min_fraction_rows = qfsp_cfg["min_fraction_rows"]
+    qfsp_min_group_width = qfsp_cfg["min_group_width"]
+    qfsp_template_smooth_win = qfsp_cfg["template_smooth_win"]
+    qfsp_inner_shrink = qfsp_cfg["inner_shrink"]
+    qfsp_outer_feather = qfsp_cfg["outer_feather"]
 
     if unwrap_rg_looks != 1 or unwrap_az_looks != 1:
         rg_looks = unwrap_rg_looks
