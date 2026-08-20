@@ -275,7 +275,17 @@ def make_feather_weight(
 
     weight = np.clip(weight, 0.0, 1.0)
 
-    # Smoothstep transition.
+    # Smooth the linear feather weight using a cubic polynomial
+    #
+    #     S(w) = a*w**3 + b*w**2 + c*w + d.
+    #
+    # Requiring S(0)=0, S(1)=1, and zero endpoint slopes,
+    # S'(0)=S'(1)=0, gives a=-2, b=3, and c=d=0. Thus,
+    #
+    #     S(w) = 3*w**2 - 2*w**3 = w**2 * (3 - 2*w).
+    #
+    # The zero endpoint slopes reduce correction-gradient discontinuities
+    # at the feather boundaries.
     weight = weight * weight * (3.0 - 2.0 * weight)
 
     return weight.astype(np.float32)
@@ -292,26 +302,119 @@ def correct_qfsp_phase_artifact(
     inner_shrink=2,
     outer_feather=10,
     fill_value=np.nan,
-):
+    ):
     """
-    Detrend phase, estimate smooth qFSP artifact from artifact pixels,
-    then subtract the smooth artifact from the original phase.
+    Estimate and remove a range-dependent qFSP phase artifact.
+
+    A smooth two-dimensional background surface is first fitted to valid,
+    non-artifact pixels and subtracted from the input phase. For each
+    contiguous group of artifact-affected range columns, a one-dimensional
+    artifact template is estimated from the residual phase by averaging over
+    rows. The template is optionally smoothed, extended beyond the detected
+    artifact columns, replicated along the row direction, and subtracted
+    from the original phase using a feathered correction weight.
 
     Parameters
     ----------
-    phase : np.ndarray
-        2D differential interferogram phase.
+    phase : numpy.ndarray
+        Two-dimensional differential interferogram phase array with shape
+        ``(nrows, ncols)``. Non-finite values and zero-valued pixels are
+        treated as invalid and are excluded from background fitting and
+        template estimation.
 
-    fit_background_mask : np.ndarray
-        Valid clean pixels used to estimate the smooth background.
-        This should usually exclude artifact_mask.
+    fit_background_mask : numpy.ndarray
+        Boolean array with the same shape as ``phase`` identifying pixels
+        available for background fitting and artifact-template estimation.
+        Artifact pixels do not need to be removed from this mask: they are
+        excluded internally from the background fit using ``artifact_mask``
+        but retained for template estimation. Pixels set to ``False`` are
+        excluded from both operations.
 
-    artifact_mask : np.ndarray
-        Pixels affected by qFSP artifact. The artifact template is estimated
-        from these pixels, and correction is applied to these pixels with
-        feathering near the boundary.
+    artifact_mask : numpy.ndarray
+        Boolean array with the same shape as ``phase``. Pixels set to
+        ``True`` identify locations affected by the qFSP artifact. The mask
+        is reduced to affected range-column groups using
+        ``min_fraction_rows`` and ``min_group_width``.
+
+    background_order : int, default=2
+        Polynomial order of the two-dimensional surface fitted to the valid,
+        non-artifact phase pixels. For example, 0 fits a constant, 1 fits a
+        planar surface, and 2 includes quadratic terms.
+
+    min_fraction_rows : float, default=0.3
+        Minimum fraction of all rows that must be marked as artifact-affected
+        for a range column to be included in an artifact group. This value
+        should normally be in the interval ``[0, 1]``.
+
+    min_group_width : int, default=2
+        Minimum number of consecutive affected range columns required to
+        retain an artifact group. Groups narrower than this value are
+        ignored.
+
+    template_smooth_win : int, default=3
+        Window length, in range pixels, used to smooth each one-dimensional
+        artifact template. Values less than or equal to 1 disable template
+        smoothing.
+
+    inner_shrink : int, default=2
+        Width, in pixels, of the transition applied inside the artifact-mask
+        boundary by ``make_feather_weight``. This reduces the correction
+        strength near the inner boundary of the detected artifact region.
+
+    outer_feather : int, default=10
+        Number of pixels by which the artifact model and correction region
+        are extended outside each detected artifact group. The correction
+        weight tapers across this region to reduce boundary discontinuities.
+
+    fill_value : float, default=numpy.nan
+        Value used to initialize ``artifact_2d`` at pixels where no artifact
+        model is estimated. Non-finite fill values prevent correction at
+        those pixels through ``valid_corr``.
+
+    Returns
+    -------
+    result : dict
+        Dictionary containing the following entries:
+
+        ``"corrected_phase"`` : numpy.ndarray
+            Copy of the input phase after subtracting the weighted artifact
+            model where a valid correction is available.
+
+        ``"artifact_2d"`` : numpy.ndarray
+            Estimated two-dimensional artifact model. Each one-dimensional
+            range template is replicated along the row direction.
+
+        ``"background"`` : numpy.ndarray
+            Fitted two-dimensional polynomial background surface.
+
+        ``"residual"`` : numpy.ndarray
+            Detrended phase, computed as ``phase - background``.
+
+        ``"fit_mask"`` : numpy.ndarray
+            Boolean mask of valid, non-artifact pixels used for background
+            fitting.
+
+        ``"template_estimation_mask"`` : numpy.ndarray
+            Boolean mask of valid artifact pixels used to estimate the
+            one-dimensional templates.
+
+        ``"groups"`` : list of tuple of int
+            Detected artifact-column intervals represented as ``(c0, c1)``.
+            Each interval follows Python slicing convention: ``c0`` is
+            included and ``c1`` is excluded.
+
+        ``"templates"`` : list of numpy.ndarray
+            One-dimensional residual-phase template estimated for each
+            detected artifact group. A template may contain non-finite
+            values where insufficient valid samples are available.
+
+        ``"correction_weight"`` : numpy.ndarray
+            Two-dimensional feather weight applied to the artifact model.
+
+        ``"valid_corr"`` : numpy.ndarray
+            Boolean mask identifying pixels where the correction was
+            actually applied.
     """
-
     phase = np.asarray(phase, dtype=float)
     fit_background_mask = np.asarray(fit_background_mask, dtype=bool)
     artifact_mask = np.asarray(artifact_mask, dtype=bool)
