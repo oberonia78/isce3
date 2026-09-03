@@ -357,9 +357,6 @@ runconfig:
                     # If the valid artifact support is smaller than this value,
                     # correction may be skipped or considered unreliable.
                     min_fraction_rows: 0.05
-                    # Minimum width, in pixels, of an artifact group to correct.
-                    # Groups narrower than this value are ignored.
-                    min_group_width: 1
                     # Window size, in pixels, used to smooth the estimated qFSP
                     # artifact template. Use an odd integer when possible.
                     template_smooth_win: 3
@@ -369,6 +366,20 @@ runconfig:
                     # Number of pixels used to feather the correction outside
                     # the artifact boundary.
                     outer_feather: 10
+                  # Critical value used by polyfit_offsets for iterative outlier
+                    # rejection. Larger values reject fewer samples.
+                    background_crit_value: 5.0
+                    # Maximum number of outliers removed during background fitting.
+                    # polyfit_offsets removes at most one sample per iteration.
+                    # Set to 0 to disable outlier rejection.
+                    background_max_iterations: 50
+                    # Maximum number of valid phase samples used for background fitting.
+                    # Deterministic subsampling is applied when more samples are available.
+                    background_max_samples: 20000
+                    # Minimum quality value used when constructing fitting weights.
+                    # This parameter is applied only when quality weights, such as
+                    # coherence, are provided.
+                    background_minimum_quality: 0.05
 
             troposphere_delay:
                 # Boolean flag to activate (True) troposphere delay computation

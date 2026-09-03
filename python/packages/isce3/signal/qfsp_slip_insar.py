@@ -4,6 +4,9 @@ import warnings
 
 from scipy.ndimage import distance_transform_edt
 
+from isce3.math.offsets_polyfit import (ncoeffs,
+                                      polyfit_offsets,
+                                      predict_offsets)
 
 def check_qfsp_flag(slc_path):
     """
@@ -49,95 +52,251 @@ def check_qfsp_flag(slc_path):
     return bool(np.asarray(value).item())
 
 
-def _fit_2d_polynomial_surface(data, valid_mask, order=2):
+def _fit_2d_polynomial_surface(
+    data,
+    valid_mask,
+    order,
+    crit_value,
+    max_iterations,
+    quality_weights=None,
+    max_samples=None,
+    minimum_quality=0.05,
+):
     """
-    Fit a two-dimensional polynomial surface to valid data samples.
-
-    The pixel coordinates are normalized using the mean and standard
-    deviation of the valid samples before the least-squares fit. Polynomial
-    terms up to cubic order are supported.
+    Robustly fit a weighted 2D polynomial phase surface using
+    ``polyfit_offsets``.
 
     Parameters
     ----------
     data : numpy.ndarray
-        Two-dimensional array containing the values to fit.
+        Two-dimensional phase array.
+
     valid_mask : numpy.ndarray
-        Boolean array with the same shape as `data`. Pixels marked as
-        ``True`` are eligible for use in the polynomial fit. Non-finite
-        values in `data` are excluded regardless of this mask.
-    order : int, optional
-        Polynomial order. Supported values are 0 through 3, corresponding
-        to constant, linear, quadratic, and cubic surfaces, respectively.
-        Defaults to 2.
+        Boolean mask identifying samples available for polynomial fitting.
+
+    order : int
+        Total degree of the two-dimensional polynomial.
+
+    crit_value : float
+        Critical value passed directly to ``polyfit_offsets`` for its
+        iterative w-test. Larger values reject fewer samples.
+
+    max_iterations : int
+        Maximum number of outliers removed by ``polyfit_offsets``. Because
+        one sample is removed per iteration, this is also the maximum number
+        of rejected samples.
+
+    quality_weights : numpy.ndarray or None, optional
+        Optional quality values, such as coherence, with the same shape as
+        ``data``. If omitted, all valid samples receive equal weight.
+
+    max_samples : int or None, optional
+        Maximum number of samples used for fitting. If necessary,
+        deterministic subsampling is applied.
+
+    minimum_quality : float, optional
+        Minimum quality value used when constructing fitting weights.
 
     Returns
     -------
     surface : numpy.ndarray
-        Two-dimensional fitted polynomial surface with the same shape as
-        `data`.
-    """
-    if not isinstance(order, (int, np.integer)) or isinstance(order, bool):
-        raise TypeError("order must be an integer")
+        Fitted polynomial surface with the same shape as ``data``.
 
-    if not 0 <= order <= 3:
-        raise ValueError("order must be between 0 and 3")
+    fit_info : dict
+        Polynomial coefficients and outlier-rejection diagnostics.
+    """
+    data = np.asarray(data, dtype=float)
+    valid_mask = np.asarray(valid_mask, dtype=bool)
+
+    if data.ndim != 2:
+        raise ValueError("data must be 2D")
+
+    if valid_mask.shape != data.shape:
+        raise ValueError(
+            "valid_mask must have the same shape as data"
+        )
+
+    if quality_weights is not None:
+        quality_weights = np.asarray(
+            quality_weights,
+            dtype=float,
+        )
+
+        if quality_weights.shape != data.shape:
+            raise ValueError(
+                "quality_weights must have the same shape as data"
+            )
+
     nrows, ncols = data.shape
-    yy, xx = np.indices((nrows, ncols))
+
+    if nrows < 2 or ncols < 2:
+        raise ValueError(
+            "data must contain at least two rows and two columns"
+        )
 
     good = valid_mask & np.isfinite(data)
-    if np.count_nonzero(good) < 10:
-        raise ValueError("Not enough valid pixels for 2D polynomial fit.")
 
-    x = xx[good].astype(float)
-    y = yy[good].astype(float)
-    z = data[good].astype(float)
+    if quality_weights is not None:
+        good &= np.isfinite(quality_weights)
+        good &= quality_weights > 0
 
-    x_mean = x.mean()
-    y_mean = y.mean()
-    x_std = x.std() if x.std() > 0 else 1.0
-    y_std = y.std() if y.std() > 0 else 1.0
+    flat_indices = np.flatnonzero(good)
+    n_available = flat_indices.size
+    n_coefficients = ncoeffs(order)
 
-    xn = (x - x_mean) / x_std
-    yn = (y - y_mean) / y_std
+    if n_available <= n_coefficients:
+        raise ValueError(
+            "Not enough valid pixels for polynomial fitting: "
+            f"{n_available} samples for "
+            f"{n_coefficients} coefficients"
+        )
 
-    terms = [np.ones_like(xn)]
-    if order >= 1:
-        terms += [xn, yn]
-    if order >= 2:
-        terms += [xn**2, xn * yn, yn**2]
-    if order >= 3:
-        terms += [xn**3, (xn**2) * yn, xn * (yn**2), yn**3]
+    # Deterministically reduce the fitting samples when requested.
+    if (
+        max_samples is not None
+        and n_available > max_samples
+    ):
+        selected = np.linspace(
+            0,
+            n_available - 1,
+            max_samples,
+            dtype=np.int64,
+        )
+        flat_indices = flat_indices[selected]
 
-    A = np.vstack(terms).T
-    coeff, _, _, _ = np.linalg.lstsq(A, z, rcond=None)
+    n_samples = flat_indices.size
 
-    yy_full, xx_full = np.indices((nrows, ncols))
-    xn_full = (xx_full.astype(float) - x_mean) / x_std
-    yn_full = (yy_full.astype(float) - y_mean) / y_std
+    if n_samples <= n_coefficients:
+        raise ValueError(
+            "Not enough samples after subsampling: "
+            f"{n_samples} samples for "
+            f"{n_coefficients} coefficients"
+        )
+    lines, pixels = np.unravel_index(
+        flat_indices,
+        data.shape,
+    )
 
-    full_terms = [np.ones_like(xn_full)]
-    if order >= 1:
-        full_terms += [xn_full, yn_full]
-    if order >= 2:
-        full_terms += [xn_full**2, xn_full * yn_full, yn_full**2]
-    if order >= 3:
-        full_terms += [xn_full**3, (xn_full**2) * yn_full, xn_full * (yn_full**2), yn_full**3]
+    phase_samples = data.ravel()[flat_indices]
+    n_samples = phase_samples.size
 
-    surface = np.zeros((nrows, ncols), dtype=float)
-    for c, t in zip(coeff, full_terms):
-        surface += c * t
+    if quality_weights is None:
+        fit_weights = np.ones(
+            n_samples,
+            dtype=float,
+        )
+    else:
+        quality_samples = quality_weights.ravel()[
+            flat_indices
+        ]
 
-    return surface
+        quality_samples = np.clip(
+            quality_samples,
+            minimum_quality,
+            1.0,
+        )
+
+        # polyfit_offsets squares the supplied weight in the
+        # weighted least-squares objective. The square root makes
+        # the effective objective weight approximately equal to
+        # the supplied quality value.
+        fit_weights = np.sqrt(quality_samples)
+
+    # polyfit_offsets input columns:
+    #
+    # [id, line, pixel, dL, dP, correlation_weight]
+    #
+    # The phase is fitted as dL. The unused dP observation is zero.
+    # Original flattened pixel indices are used as IDs so rejected
+    # samples can be mapped back to image coordinates.
+    fit_data = np.column_stack(
+        (
+            flat_indices.astype(float),
+            lines.astype(float),
+            pixels.astype(float),
+            phase_samples,
+            np.zeros(n_samples, dtype=float),
+            fit_weights,
+        )
+    )
+
+    min_line = 0.0
+    max_line = float(nrows - 1)
+    min_pixel = 0.0
+    max_pixel = float(ncols - 1)
+
+    fit_result = polyfit_offsets(
+        fit_data,
+        degree=order,
+        crit_value=crit_value,
+        max_iterations=max_iterations,
+        minL=min_line,
+        maxL=max_line,
+        minP=min_pixel,
+        maxP=max_pixel,
+    )
+
+    yy, xx = np.indices(
+        (nrows, ncols),
+        dtype=float,
+    )
+
+    surface, _ = predict_offsets(
+        lines=yy,
+        pixels=xx,
+        coefL=fit_result["coefL"],
+        coefP=fit_result["coefP"],
+        degree=order,
+        minL=min_line,
+        maxL=max_line,
+        minP=min_pixel,
+        maxP=max_pixel,
+    )
+
+    removed_flat_indices = np.asarray(
+        fit_result["removed_indices"],
+        dtype=np.int64,
+    )
+
+    if removed_flat_indices.size > 0:
+        removed_rows, removed_cols = np.unravel_index(
+            removed_flat_indices,
+            data.shape,
+        )
+    else:
+        removed_rows = np.array([], dtype=np.int64)
+        removed_cols = np.array([], dtype=np.int64)
+    n_removed = removed_flat_indices.size
+
+    fit_info = {
+        "coefficients": fit_result["coefL"],
+        "crit_value": crit_value,
+        "max_iterations": max_iterations,
+        "n_available": n_available,
+        "n_samples": n_samples,
+        "n_inliers": fit_result["inliers"].shape[0],
+        "n_removed": n_removed,
+        "reached_removal_limit": (
+            max_iterations > 0
+            and n_removed >= max_iterations
+        ),
+        "removed_flat_indices": removed_flat_indices,
+        "removed_rows": removed_rows,
+        "removed_cols": removed_cols,
+    }
+
+    return surface, fit_info
 
 
-def _find_column_groups(artifact_mask, min_fraction_rows=0.3, min_group_width=2):
+def _find_column_groups(
+    artifact_mask,
+    min_fraction_rows=0.3,
+):
     """
     Find contiguous column groups affected by an artifact.
 
     A column is considered affected when the fraction of artifact pixels
     along its rows is greater than or equal to `min_fraction_rows`.
-    Contiguous affected columns are grouped, and groups narrower than
-    `min_group_width` are discarded.
 
     Parameters
     ----------
@@ -148,9 +307,6 @@ def _find_column_groups(artifact_mask, min_fraction_rows=0.3, min_group_width=2)
         Minimum fraction of rows containing artifact pixels required for
         a column to be considered affected. Expected to be between 0 and 1.
         Defaults to 0.3.
-    min_group_width : int, optional
-        Minimum number of contiguous affected columns required to retain
-        a group. Defaults to 2.
 
     Returns
     -------
@@ -173,14 +329,11 @@ def _find_column_groups(artifact_mask, min_fraction_rows=0.3, min_group_width=2)
             in_group = True
         elif not affected_cols[j] and in_group:
             end = j
-            if end - start >= min_group_width:
-                groups.append((start, end))
+            groups.append((start, end))
             in_group = False
 
     if in_group:
-        end = ncols
-        if end - start >= min_group_width:
-            groups.append((start, end))
+        groups.append((start, ncols))
 
     return groups
 
@@ -295,14 +448,18 @@ def correct_qfsp_phase_artifact(
     phase,
     fit_background_mask,
     artifact_mask,
-    background_order=2,
-    min_fraction_rows=0.3,
-    min_group_width=2,
-    template_smooth_win=3,
-    inner_shrink=2,
-    outer_feather=10,
+    background_order,
+    background_crit_value,
+    background_max_iterations,
+    background_max_samples,
+    background_minimum_quality,
+    min_fraction_rows,
+    template_smooth_win,
+    inner_shrink,
+    outer_feather,
+    background_weights=None,
     fill_value=np.nan,
-    ):
+):
     """
     Estimate and remove a range-dependent qFSP phase artifact.
 
@@ -334,22 +491,32 @@ def correct_qfsp_phase_artifact(
         Boolean array with the same shape as ``phase``. Pixels set to
         ``True`` identify locations affected by the qFSP artifact. The mask
         is reduced to affected range-column groups using
-        ``min_fraction_rows`` and ``min_group_width``.
+        ``min_fraction_rows``.
 
     background_order : int, default=2
         Polynomial order of the two-dimensional surface fitted to the valid,
         non-artifact phase pixels. For example, 0 fits a constant, 1 fits a
         planar surface, and 2 includes quadratic terms.
 
+    background_crit_value : float
+        Critical value passed directly to ``polyfit_offsets`` for iterative
+        outlier rejection. Larger values result in fewer rejected samples.
+
+    background_max_iterations : int
+        Maximum number of samples removed during iterative outlier rejection.
+        ``polyfit_offsets`` removes at most one sample per iteration.
+
+    background_max_samples : int or None
+        Maximum number of phase samples used for polynomial fitting.
+
+    background_minimum_quality : float
+        Lower bound applied to quality values before converting them to
+        fitting weights.
+
     min_fraction_rows : float, default=0.3
         Minimum fraction of all rows that must be marked as artifact-affected
         for a range column to be included in an artifact group. This value
         should normally be in the interval ``[0, 1]``.
-
-    min_group_width : int, default=2
-        Minimum number of consecutive affected range columns required to
-        retain an artifact group. Groups narrower than this value are
-        ignored.
 
     template_smooth_win : int, default=3
         Window length, in range pixels, used to smooth each one-dimensional
@@ -365,6 +532,10 @@ def correct_qfsp_phase_artifact(
         Number of pixels by which the artifact model and correction region
         are extended outside each detected artifact group. The correction
         weight tapers across this region to reduce boundary discontinuities.
+
+    background_weights : numpy.ndarray or None, optional
+        Optional phase-quality values, such as coherence, with the same shape
+        as ``phase``. If ``None``, all valid samples receive equal weight.
 
     fill_value : float, default=numpy.nan
         Value used to initialize ``artifact_2d`` at pixels where no artifact
@@ -446,11 +617,17 @@ def correct_qfsp_phase_artifact(
         & valid_phase
         & fit_background_mask
     )
-
-    background = _fit_2d_polynomial_surface(
-        phase,
-        fit_mask,
-        order=background_order,
+    background, background_fit_info = (
+        _fit_2d_polynomial_surface(
+            phase,
+            fit_mask,
+            order=background_order,
+            crit_value=background_crit_value,
+            max_iterations=background_max_iterations,
+            quality_weights=background_weights,
+            max_samples=background_max_samples,
+            minimum_quality=background_minimum_quality,
+        )
     )
 
     residual = phase - background
@@ -458,7 +635,6 @@ def correct_qfsp_phase_artifact(
     groups = _find_column_groups(
         artifact_mask,
         min_fraction_rows=min_fraction_rows,
-        min_group_width=min_group_width,
     )
 
     artifact_2d = np.full_like(phase, fill_value, dtype=float)

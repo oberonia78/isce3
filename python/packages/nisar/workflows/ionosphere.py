@@ -1181,10 +1181,14 @@ def run(cfg: dict, runw_hdf5: str):
 
     qfsp_background_order = qfsp_cfg["background_order"]
     qfsp_min_fraction_rows = qfsp_cfg["min_fraction_rows"]
-    qfsp_min_group_width = qfsp_cfg["min_group_width"]
     qfsp_template_smooth_win = qfsp_cfg["template_smooth_win"]
     qfsp_inner_shrink = qfsp_cfg["inner_shrink"]
     qfsp_outer_feather = qfsp_cfg["outer_feather"]
+
+    qfsp_background_crit_value = qfsp_cfg["background_crit_value"]
+    qfsp_background_max_iterations = qfsp_cfg["background_max_iterations"]
+    qfsp_background_max_samples = qfsp_cfg["background_max_samples"]
+    qfsp_background_minimum_quality = qfsp_cfg["background_minimum_quality"]
 
     if unwrap_rg_looks != 1 or unwrap_az_looks != 1:
         rg_looks = unwrap_rg_looks
@@ -1197,13 +1201,34 @@ def run(cfg: dict, runw_hdf5: str):
         sec_qfsp_flag = check_qfsp_flag(
             cfg["input_file_group"]["secondary_rslc_file"]
         )
-        if not ref_qfsp_flag and not sec_qfsp_flag:
-            info_channel.log(
-                "qFSP correction is enabled but none of input "
-                "does not qFSP slip"
-            )
+
+        if ref_qfsp_flag == sec_qfsp_flag:
+            # The differential interferometric phase contains no net qFSP artifact
+            # when both RSLCs have the same qFSP status:
+            #   False/False: neither acquisition contains the artifact.
+            #   True/True:   the common artifact cancels during phase differencing.
+            # Correction is needed only when exactly one RSLC contains the artifact.
+            if ref_qfsp_flag:
+                info_channel.log(
+                    "Both reference and secondary RSLCs contain the qFSP artifact. "
+                    "The common artifact is expected to cancel in the differential "
+                    "phase; disabling qFSP correction."
+                )
+            else:
+                info_channel.log(
+                    "Neither reference nor secondary RSLC contains the qFSP artifact; "
+                    "disabling qFSP correction."
+                )
+
             iono_qfsp_correction_flag = False
+
         else:
+            # Exactly one RSLC contains the qFSP artifact, so it remains in the
+            # differential phase and must be corrected.
+            info_channel.log(
+                "Only one RSLC contains the qFSP artifact; "
+                "qFSP correction will be applied."
+            )
             info_channel.log(
                 f"Reference input-data exception flag: {ref_qfsp_flag}"
             )
@@ -1226,7 +1251,7 @@ def run(cfg: dict, runw_hdf5: str):
 
     # Run InSAR for sub-band SLCs (split-main-bands) or
     # for main and side bands for iono_freq_pols (main-side-bands)
-    insar_ionosphere_pair(iono_insar_cfg, runw_hdf5)
+    # insar_ionosphere_pair(iono_insar_cfg, runw_hdf5)
 
     t_all = time.time()
     # Define methods to use subband or sideband
@@ -1966,6 +1991,9 @@ def run(cfg: dict, runw_hdf5: str):
                     n_background = np.count_nonzero(qfsp_background_mask)
                     n_artifact = np.count_nonzero(mask_anomaly_array)
 
+                    apply_qfsp_correction = True
+                    qfsp_output = None
+
                     if n_artifact == 0:
                         info_channel.log(
                             f"No qFSP anomaly pixels in block {block}; "
@@ -1979,34 +2007,37 @@ def run(cfg: dict, runw_hdf5: str):
                         )
                         apply_qfsp_correction = False
                     if apply_qfsp_correction:
-                        output = correct_qfsp_phase_artifact(
+                        qfsp_output = correct_qfsp_phase_artifact(
                             diff_phase,
                             fit_background_mask=qfsp_background_mask,
                             artifact_mask=mask_anomaly_array,
                             background_order=qfsp_background_order,
+                            background_crit_value=qfsp_background_crit_value,
+                            background_max_iterations=qfsp_background_max_iterations,
+                            background_max_samples=qfsp_background_max_samples,
+                            background_minimum_quality=qfsp_background_minimum_quality,
                             min_fraction_rows=qfsp_min_fraction_rows,
-                            min_group_width=qfsp_min_group_width,
                             template_smooth_win=qfsp_template_smooth_win,
                             inner_shrink=qfsp_inner_shrink,
                             outer_feather=qfsp_outer_feather,
+                            background_weights=None,
                             fill_value=np.nan,
                         )
-
                         write_array(
                             os.path.join(qfsp_out_dir, "qFSP_artifact_2d"),
-                            output["artifact_2d"],
+                            qfsp_output["artifact_2d"],
                             data_type=gdal.GDT_Float32,
                             block_row=row_start,
                             data_shape=[rows_output, cols_output])
-                        print("background", np.unique(output["background"]))
+                        print("background", np.unique(qfsp_output["background"]))
                         write_array(
                             os.path.join(qfsp_out_dir, "qFSP_background"),
-                            output["background"],
+                            qfsp_output["background"],
                             data_type=gdal.GDT_Float32,
                             block_row=row_start,
                             data_shape=[rows_output, cols_output])
 
-                    diff_phase = output["corrected_phase"]
+                    diff_phase = qfsp_output["corrected_phase"]
                     write_array(
                         qfsp_corrected_path,
                         diff_phase,
